@@ -5,7 +5,7 @@ import os
 # Load environment variables from .env file
 load_dotenv()
 
-from app.routers import health, screen_control, fields
+from app.routers import health, screen_control, fields, scraper
 
 # Try to import form_filler, but make it optional
 try:
@@ -34,6 +34,7 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(fields.router)
 app.include_router(screen_control.router)
+app.include_router(scraper.router)
 
 # Only include form_filler router if it's available
 if FORM_FILLER_AVAILABLE:
