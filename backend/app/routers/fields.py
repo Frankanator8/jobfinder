@@ -4,9 +4,9 @@ API Router for form field analysis.
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, HttpUrl
-from typing import Optional, Union
+from typing import Optional
 
-from app.divselection import analyze_url, analyze_html
+from app.divselection import analyze_url, analyze_html, check_submission_status, check_html_submission_status
 
 
 router = APIRouter(prefix="/fields", tags=["fields"])
@@ -25,6 +25,39 @@ class AnalyzeHtmlRequest(BaseModel):
     base_url: str = "about:blank"
     headless: bool = True
     screenshot_dir: Optional[str] = "screenshots"
+
+
+class SubmissionCheckRequest(BaseModel):
+    """Request model for submission status check."""
+    url: HttpUrl
+    headless: bool = True
+    screenshot_dir: Optional[str] = "screenshots"
+
+
+class SubmissionCheckHtmlRequest(BaseModel):
+    """Request model for HTML submission status check."""
+    html_content: str
+    base_url: str = "about:blank"
+    headless: bool = True
+    screenshot_dir: Optional[str] = "screenshots"
+
+
+class SubmissionResult(BaseModel):
+    """Result of submission detection."""
+    status: str
+    confidence: float
+    indicators: list[str]
+    confirmation_text: str
+    success_elements: list[dict]
+    error_elements: list[dict]
+    screenshot_path: str
+    url: str
+
+
+class SubmissionResponse(BaseModel):
+    """Response model for submission status check."""
+    source: str
+    submission_result: SubmissionResult
 
 
 class FieldInfo(BaseModel):
@@ -111,4 +144,62 @@ async def analyze_html_content(request: AnalyzeHtmlRequest) -> AnalyzeResponse:
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"HTML analysis failed: {str(e)}")
+
+
+@router.post("/check-submission", response_model=SubmissionResponse)
+async def check_submission_status_endpoint(request: SubmissionCheckRequest) -> SubmissionResponse:
+    """
+    Check if a job application has been submitted by analyzing the page.
+
+    Args:
+        request: The submission check request containing the URL and options
+
+    Returns:
+        Submission status analysis results
+    """
+    try:
+        result = await check_submission_status(
+            url=str(request.url),
+            headless=request.headless,
+            screenshot_dir=request.screenshot_dir or "screenshots"
+        )
+
+        submission_result = result["submission_result"]
+
+        return SubmissionResponse(
+            source=result["source"],
+            submission_result=SubmissionResult(**submission_result)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Submission check failed: {str(e)}")
+
+
+@router.post("/check-submission-html", response_model=SubmissionResponse)
+async def check_html_submission_status_endpoint(request: SubmissionCheckHtmlRequest) -> SubmissionResponse:
+    """
+    Check if a job application has been submitted by analyzing HTML content.
+
+    Args:
+        request: The submission check request containing the HTML content and options
+
+    Returns:
+        Submission status analysis results
+    """
+    try:
+        result = await check_html_submission_status(
+            html_content=request.html_content,
+            base_url=request.base_url,
+            headless=request.headless,
+            screenshot_dir=request.screenshot_dir or "screenshots"
+        )
+
+        submission_result = result["submission_result"]
+
+        return SubmissionResponse(
+            source=result["source"],
+            submission_result=SubmissionResult(**submission_result)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HTML submission check failed: {str(e)}")
+
 

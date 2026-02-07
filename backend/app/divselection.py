@@ -13,9 +13,79 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from playwright.async_api import async_playwright, Page, Browser, ElementHandle
+
+
+class SubmissionStatus(Enum):
+    """Status of job application submission."""
+    NOT_SUBMITTED = "not_submitted"
+    SUBMITTED = "submitted"
+    ERROR = "error"
+    PENDING = "pending"
+    CONFIRMATION = "confirmation"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class SubmissionResult:
+    """Represents the result of a submission detection analysis."""
+    status: SubmissionStatus
+    confidence: float  # 0.0 to 1.0
+    indicators: List[str]
+    confirmation_text: str
+    success_elements: List[Dict[str, Any]]
+    error_elements: List[Dict[str, Any]]
+    screenshot_path: str
+    url: str
+
+    def to_dict(self) -> dict:
+        return {
+            "status": self.status.value,
+            "confidence": self.confidence,
+            "indicators": self.indicators,
+            "confirmation_text": self.confirmation_text,
+            "success_elements": self.success_elements,
+            "error_elements": self.error_elements,
+            "screenshot_path": self.screenshot_path,
+            "url": self.url
+        }
+
+
+# Keywords that indicate successful submission
+SUCCESS_KEYWORDS = [
+    "success", "successful", "submitted", "received", "thank you", "thanks",
+    "confirmation", "confirmed", "application submitted", "we have received",
+    "your application", "application complete", "submission complete",
+    "congratulations", "next steps", "we'll be in touch", "review your application",
+    "application id", "reference number", "tracking number", "confirmation number"
+]
+
+# Keywords that indicate errors or failures
+ERROR_KEYWORDS = [
+    "error", "failed", "failure", "problem", "issue", "invalid", "required",
+    "missing", "incorrect", "please try again", "something went wrong",
+    "unable to submit", "submission failed", "application failed", "expired",
+    "session expired", "timeout", "network error", "server error"
+]
+
+# Keywords that indicate pending or in-progress status
+PENDING_KEYWORDS = [
+    "processing", "please wait", "loading", "submitting", "in progress",
+    "uploading", "validating", "checking", "reviewing", "pending"
+]
+
+# Visual indicators (CSS classes and IDs)
+SUCCESS_INDICATORS = [
+    "success", "alert-success", "message-success", "notification-success",
+    "confirmation", "thank-you", "submitted", "complete"
+]
+
+ERROR_INDICATORS = [
+    "error", "alert-error", "alert-danger", "message-error", "notification-error",
+    "failure", "invalid", "required-field", "validation-error"
+]
 
 
 class FieldType(Enum):
@@ -479,6 +549,256 @@ class DivSelector:
             summary[field_type] = summary.get(field_type, 0) + 1
         return summary
 
+    async def _extract_element_info(self, element: ElementHandle) -> Dict[str, Any]:
+        """Extract information from an element for submission analysis."""
+        return await element.evaluate("""
+            el => ({
+                text: el.textContent.trim(),
+                id: el.id || '',
+                className: el.className || '',
+                tagName: el.tagName.toLowerCase(),
+                innerHTML: el.innerHTML,
+                visible: el.offsetParent !== null,
+                boundingBox: {
+                    x: el.getBoundingClientRect().x,
+                    y: el.getBoundingClientRect().y,
+                    width: el.getBoundingClientRect().width,
+                    height: el.getBoundingClientRect().height
+                }
+            })
+        """)
+
+    async def _search_for_keywords(self, keywords: List[str], element_selectors: List[str]) -> List[Dict[str, Any]]:
+        """Search for specific keywords in page elements."""
+        found_elements = []
+
+        for selector in element_selectors:
+            try:
+                elements = await self.page.query_selector_all(selector)
+                for element in elements:
+                    if not await element.is_visible():
+                        continue
+
+                    element_info = await self._extract_element_info(element)
+                    text_content = element_info['text'].lower()
+
+                    # Check if any keyword is found in the text
+                    matching_keywords = [kw for kw in keywords if kw.lower() in text_content]
+                    if matching_keywords:
+                        element_info['matching_keywords'] = matching_keywords
+                        element_info['selector'] = selector
+                        found_elements.append(element_info)
+
+            except Exception as e:
+                # Continue if selector fails
+                continue
+
+        return found_elements
+
+    async def _check_url_indicators(self) -> List[str]:
+        """Check URL for submission success indicators."""
+        current_url = self.page.url.lower()
+        indicators = []
+
+        url_success_patterns = [
+            'success', 'submitted', 'confirmation', 'thank-you', 'complete',
+            'application-submitted', 'submission-complete', 'thank_you'
+        ]
+
+        for pattern in url_success_patterns:
+            if pattern in current_url:
+                indicators.append(f"URL contains '{pattern}'")
+
+        return indicators
+
+    async def _analyze_page_title(self) -> List[str]:
+        """Analyze page title for submission indicators."""
+        title = await self.page.title()
+        title_lower = title.lower()
+        indicators = []
+
+        for keyword in SUCCESS_KEYWORDS:
+            if keyword in title_lower:
+                indicators.append(f"Page title contains '{keyword}': {title}")
+
+        for keyword in ERROR_KEYWORDS:
+            if keyword in title_lower:
+                indicators.append(f"Page title contains error '{keyword}': {title}")
+
+        return indicators
+
+    async def detect_submission_status(self) -> SubmissionResult:
+        """
+        Detect if a job application has been successfully submitted.
+
+        Returns:
+            SubmissionResult with detection details
+        """
+        if not self.page:
+            raise RuntimeError("Browser not started. Call start() first.")
+
+        indicators = []
+        success_elements = []
+        error_elements = []
+        confirmation_text = ""
+
+        # Element selectors to search for submission status
+        search_selectors = [
+            "div", "p", "span", "h1", "h2", "h3", "h4", "h5", "h6",
+            ".message", ".alert", ".notification", ".success", ".error",
+            ".confirmation", ".status", ".result", "#message", "#alert",
+            "#confirmation", "#status", "#result"
+        ]
+
+        # Check URL indicators
+        url_indicators = await self._check_url_indicators()
+        indicators.extend(url_indicators)
+
+        # Check page title
+        title_indicators = await self._analyze_page_title()
+        indicators.extend(title_indicators)
+
+        # Search for success keywords
+        success_elements = await self._search_for_keywords(SUCCESS_KEYWORDS, search_selectors)
+
+        # Search for error keywords
+        error_elements = await self._search_for_keywords(ERROR_KEYWORDS, search_selectors)
+
+        # Search for pending keywords
+        pending_elements = await self._search_for_keywords(PENDING_KEYWORDS, search_selectors)
+
+        # Check for visual indicators in CSS classes
+        visual_success = []
+        visual_error = []
+
+        for indicator in SUCCESS_INDICATORS:
+            elements = await self.page.query_selector_all(f".{indicator}")
+            for element in elements:
+                if await element.is_visible():
+                    info = await self._extract_element_info(element)
+                    info['indicator_type'] = 'css_class'
+                    info['indicator_value'] = indicator
+                    visual_success.append(info)
+
+        for indicator in ERROR_INDICATORS:
+            elements = await self.page.query_selector_all(f".{indicator}")
+            for element in elements:
+                if await element.is_visible():
+                    info = await self._extract_element_info(element)
+                    info['indicator_type'] = 'css_class'
+                    info['indicator_value'] = indicator
+                    visual_error.append(info)
+
+        success_elements.extend(visual_success)
+        error_elements.extend(visual_error)
+
+        # Extract confirmation text from success elements
+        if success_elements:
+            confirmation_text = " | ".join([elem['text'][:200] for elem in success_elements[:3] if elem['text']])
+
+        # Determine status and confidence
+        status, confidence = self._determine_status(
+            success_elements, error_elements, pending_elements, url_indicators, title_indicators
+        )
+
+        # Add specific indicators
+        if success_elements:
+            indicators.append(f"Found {len(success_elements)} success elements")
+        if error_elements:
+            indicators.append(f"Found {len(error_elements)} error elements")
+        if pending_elements:
+            indicators.append(f"Found {len(pending_elements)} pending elements")
+
+        # Take screenshot for documentation
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        screenshot_filename = f"submission_check_{timestamp}.png"
+        screenshot_path = await self.take_screenshot(screenshot_filename)
+
+        return SubmissionResult(
+            status=status,
+            confidence=confidence,
+            indicators=indicators,
+            confirmation_text=confirmation_text,
+            success_elements=success_elements,
+            error_elements=error_elements,
+            screenshot_path=screenshot_path,
+            url=self.page.url
+        )
+
+    def _determine_status(self, success_elements: List[Dict], error_elements: List[Dict],
+                         pending_elements: List[Dict], url_indicators: List[str],
+                         title_indicators: List[str]) -> tuple[SubmissionStatus, float]:
+        """Determine submission status and confidence based on found elements."""
+
+        success_score = len(success_elements) * 2 + len(url_indicators) * 3
+        error_score = len(error_elements) * 2
+        pending_score = len(pending_elements) * 1
+
+        # High confidence thresholds
+        if success_score >= 4 and error_score == 0:
+            return SubmissionStatus.SUBMITTED, min(0.95, 0.7 + success_score * 0.05)
+
+        if error_score >= 3 and success_score == 0:
+            return SubmissionStatus.ERROR, min(0.9, 0.6 + error_score * 0.05)
+
+        if pending_score >= 2 and success_score == 0 and error_score == 0:
+            return SubmissionStatus.PENDING, min(0.8, 0.5 + pending_score * 0.1)
+
+        # Medium confidence scenarios
+        if success_score >= 2:
+            return SubmissionStatus.SUBMITTED, min(0.8, 0.5 + success_score * 0.05)
+
+        if error_score >= 1:
+            return SubmissionStatus.ERROR, min(0.7, 0.4 + error_score * 0.1)
+
+        if pending_score >= 1:
+            return SubmissionStatus.PENDING, min(0.6, 0.3 + pending_score * 0.1)
+
+        # Check for confirmation patterns in URL
+        url_check = any('success' in indicator or 'submitted' in indicator or 'confirmation' in indicator
+                       for indicator in url_indicators)
+        if url_check:
+            return SubmissionStatus.CONFIRMATION, 0.75
+
+        # Default to not submitted if no clear indicators
+        return SubmissionStatus.NOT_SUBMITTED, 0.3
+
+    async def analyze_submission_status(self, url: str = None, html_content: str = None,
+                                      base_url: str = "about:blank") -> Dict[str, Any]:
+        """
+        Complete workflow to analyze submission status of a page.
+
+        Args:
+            url: The page URL to check (optional if html_content is provided)
+            html_content: HTML content to analyze (optional if url is provided)
+            base_url: Base URL for resolving relative links when using html_content
+
+        Returns:
+            Dictionary with submission status analysis results
+        """
+        if not url and not html_content:
+            raise ValueError("Either url or html_content must be provided")
+
+        if url and html_content:
+            raise ValueError("Only one of url or html_content should be provided")
+
+        if url:
+            print(f"Navigating to: {url}")
+            await self.navigate(url)
+            source = url
+        else:
+            print(f"Loading HTML content ({len(html_content)} characters)")
+            await self.load_html(html_content, base_url)
+            source = f"HTML content ({len(html_content)} chars)"
+
+        print("Detecting submission status...")
+        result = await self.detect_submission_status()
+
+        return {
+            "source": source,
+            "submission_result": result.to_dict()
+        }
+
 
 async def analyze_url(url: str, headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
     """
@@ -542,6 +862,72 @@ def run_html_analysis(html_content: str, base_url: str = "about:blank", headless
         Dictionary with analysis results
     """
     return asyncio.run(analyze_html(html_content, base_url, headless, screenshot_dir))
+
+
+async def check_submission_status(url: str, headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
+    """
+    Convenience function to check submission status of a URL.
+
+    Args:
+        url: The page URL to check
+        headless: Run browser in headless mode
+        screenshot_dir: Directory to save screenshots
+
+    Returns:
+        Dictionary with submission status analysis results
+    """
+    async with DivSelector(headless=headless, screenshot_dir=screenshot_dir) as selector:
+        return await selector.analyze_submission_status(url=url)
+
+
+async def check_html_submission_status(html_content: str, base_url: str = "about:blank",
+                                     headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
+    """
+    Convenience function to check submission status of HTML content.
+
+    Args:
+        html_content: The HTML content to analyze
+        base_url: Base URL for resolving relative links
+        headless: Run browser in headless mode
+        screenshot_dir: Directory to save screenshots
+
+    Returns:
+        Dictionary with submission status analysis results
+    """
+    async with DivSelector(headless=headless, screenshot_dir=screenshot_dir) as selector:
+        return await selector.analyze_submission_status(html_content=html_content, base_url=base_url)
+
+
+def run_submission_check(url: str, headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
+    """
+    Synchronous wrapper for check_submission_status.
+
+    Args:
+        url: The page URL to check
+        headless: Run browser in headless mode
+        screenshot_dir: Directory to save screenshots
+
+    Returns:
+        Dictionary with submission status analysis results
+    """
+    return asyncio.run(check_submission_status(url, headless, screenshot_dir))
+
+
+def run_html_submission_check(html_content: str, base_url: str = "about:blank",
+                             headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
+    """
+    Synchronous wrapper for check_html_submission_status.
+
+    Args:
+        html_content: The HTML content to analyze
+        base_url: Base URL for resolving relative links
+        headless: Run browser in headless mode
+        screenshot_dir: Directory to save screenshots
+
+    Returns:
+        Dictionary with submission status analysis results
+    """
+    return asyncio.run(check_html_submission_status(html_content, base_url, headless, screenshot_dir))
 
 
 # Example usage and CLI
