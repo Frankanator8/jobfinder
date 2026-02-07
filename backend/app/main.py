@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.routers import health
+from app.routers import health, fields
 
 app = FastAPI(
     title="DF26 Backend",
@@ -9,6 +9,7 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(fields.router)
 
 
 @app.get("/")
