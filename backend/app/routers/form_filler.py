@@ -5,7 +5,15 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 
 from app.schemas.form_fields import FormFieldsRequest, FormFillResult
-from app.agents.form_filler_agent import FormFillerAgent
+
+# Try to import FormFillerAgent, but make it optional
+try:
+    from app.agents.form_filler_agent import FormFillerAgent
+    AGENT_AVAILABLE = True
+except ImportError as e:
+    AGENT_AVAILABLE = False
+    AGENT_IMPORT_ERROR = str(e)
+    FormFillerAgent = None
 
 router = APIRouter(prefix="/form-filler", tags=["form-filler"])
 
@@ -15,6 +23,11 @@ _agent: Optional[FormFillerAgent] = None
 
 def get_agent() -> FormFillerAgent:
     """Get or create the form filler agent"""
+    if not AGENT_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Form filler agent is not available. Import error: {AGENT_IMPORT_ERROR}"
+        )
     global _agent
     if _agent is None:
         _agent = FormFillerAgent()
@@ -35,6 +48,11 @@ async def fill_form(request: FormFieldsRequest) -> FormFillResult:
     Returns:
         FormFillResult with success status and details
     """
+    if not AGENT_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Form filler agent is not available. Import error: {AGENT_IMPORT_ERROR}"
+        )
     try:
         agent = get_agent()
         result = agent.fill_form_from_request(request)

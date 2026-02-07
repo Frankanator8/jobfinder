@@ -2,10 +2,36 @@
 MCP Agent using LangChain for form filling
 """
 import time
+import os
 from typing import List, Dict, Any, Optional
-from langchain.agents import AgentExecutor, create_openai_tools_agent
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+try:
+    # Try newer LangChain imports (v0.1+)
+    from langchain.agents import AgentExecutor, create_openai_tools_agent
+except ImportError:
+    try:
+        # Try langchain_core path
+        from langchain_core.agents import AgentExecutor
+        from langchain.agents import create_openai_tools_agent
+    except ImportError:
+        try:
+            # Try agent_executor module directly
+            from langchain.agents.agent_executor import AgentExecutor
+            from langchain.agents import create_openai_tools_agent
+        except ImportError:
+            # Last resort - try langchain.agents.agent
+            from langchain.agents.agent import AgentExecutor
+            from langchain.agents import create_openai_tools_agent
+
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+try:
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+except ImportError:
+    from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
 from app.agents.tools.screen_control_tools import get_screen_control_tools
@@ -19,7 +45,7 @@ class FormFillerAgent:
         self,
         model_name: str = "gpt-4o-mini",
         temperature: float = 0.0,
-        api_base_url: str = "http://localhost:8000/screen-control",
+        api_base_url: Optional[str] = None,
         openai_api_key: Optional[str] = None,
     ):
         """
@@ -28,14 +54,18 @@ class FormFillerAgent:
         Args:
             model_name: OpenAI model to use
             temperature: Model temperature
-            api_base_url: Base URL for screen control API
-            openai_api_key: OpenAI API key (or set OPENAI_API_KEY env var)
+            api_base_url: Base URL for screen control API (defaults to env var or localhost:8000)
+            openai_api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
         """
-        self.api_base_url = api_base_url
+        # Get API key from parameter, env var, or None
+        self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+        
+        # Get API base URL from parameter, env var, or default
+        self.api_base_url = api_base_url or os.getenv("SCREEN_CONTROL_API_URL", "http://localhost:8000/screen-control")
         self.llm = ChatOpenAI(
             model=model_name,
             temperature=temperature,
-            api_key=openai_api_key,
+            api_key=self.openai_api_key,
         )
         
         # Get tools
@@ -92,13 +122,20 @@ Be careful and precise. Always verify your actions worked correctly."""),
         ])
         
         # Create agent
-        self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
-        self.agent_executor = AgentExecutor(
-            agent=self.agent,
-            tools=self.tools,
-            verbose=True,
-            handle_parsing_errors=True,
-        )
+        try:
+            # Try newer LangChain API
+            self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
+            self.agent_executor = AgentExecutor(
+                agent=self.agent,
+                tools=self.tools,
+                verbose=True,
+                handle_parsing_errors=True,
+            )
+        except Exception as e:
+            # If agent creation fails, we'll handle it when it's used
+            self.agent = None
+            self.agent_executor = None
+            self._agent_error = str(e)
     
     def fill_form_fields(
         self,
@@ -167,6 +204,9 @@ Instructions:
 Start by taking a screenshot to see what's on the screen."""
         
         try:
+            if self.agent_executor is None:
+                raise Exception(f"Agent not initialized: {getattr(self, '_agent_error', 'Unknown error')}")
+            
             # Execute agent
             result = self.agent_executor.invoke({
                 "input": instruction,

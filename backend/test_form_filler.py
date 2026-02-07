@@ -14,7 +14,11 @@ import os
 import requests
 import json
 
-BASE_URL = "http://localhost:8000/form-filler"
+import os
+
+# Get port from environment or default to 8000
+PORT = int(os.getenv("PORT", "8000"))
+BASE_URL = f"http://localhost:{PORT}/form-filler"
 
 def test_simple_form_fill():
     """Test filling a simple form"""

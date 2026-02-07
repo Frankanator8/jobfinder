@@ -12,7 +12,11 @@ import requests
 import json
 import time
 
-BASE_URL = "http://localhost:8000/screen-control"
+import os
+
+# Get port from environment or default to 8000
+PORT = int(os.getenv("PORT", "8000"))
+BASE_URL = f"http://localhost:{PORT}/screen-control"
 
 def test_screen_info():
     """Test getting screen information"""
@@ -130,7 +134,7 @@ def main():
         print("\n" + "=" * 60)
         print("✅ All tests completed!")
         print("=" * 60)
-        print("\n💡 Tip: Open http://localhost:8000/docs for interactive API testing")
+        print(f"\n💡 Tip: Open http://localhost:{PORT}/docs for interactive API testing")
         
     except requests.exceptions.ConnectionError:
         print("\n❌ Error: Could not connect to server!")
