@@ -148,9 +148,6 @@ async def scrape_jobs_endpoint(
             linkedin_fetch_description=linkedin_fetch_description
         )
 
-        # Save to CSV
-        jobs.to_csv("jobs.csv", quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
-
         # Convert scraped jobs to JobApplication objects
         job_applications = []
         saved_count = 0
