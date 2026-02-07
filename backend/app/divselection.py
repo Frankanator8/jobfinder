@@ -146,6 +146,22 @@ class DivSelector:
         # Give dynamic content time to render
         await asyncio.sleep(1)
 
+    async def load_html(self, html_content: str, base_url: str = "about:blank"):
+        """
+        Load HTML content directly into the page.
+
+        Args:
+            html_content: The HTML content to load
+            base_url: Base URL for resolving relative links (optional)
+        """
+        if not self.page:
+            raise RuntimeError("Browser not started. Call start() first.")
+
+        await self.page.goto(base_url)
+        await self.page.set_content(html_content, wait_until="domcontentloaded")
+        # Give dynamic content time to render
+        await asyncio.sleep(1)
+
     def _classify_field_type(self, input_type: str, attributes: dict) -> FieldType:
         """
         Classify a field based on its type and attributes.
@@ -407,18 +423,32 @@ class DivSelector:
 
         return str(screenshot_path)
 
-    async def analyze_application_page(self, url: str) -> dict:
+    async def analyze_application_page(self, url: str = None, html_content: str = None, base_url: str = "about:blank") -> dict:
         """
-        Complete workflow: navigate, find fields, highlight, and screenshot.
+        Complete workflow: load content (URL or HTML), find fields, highlight, and screenshot.
 
         Args:
-            url: The application page URL
+            url: The application page URL (optional if html_content is provided)
+            html_content: HTML content to analyze (optional if url is provided)
+            base_url: Base URL for resolving relative links when using html_content
 
         Returns:
             Dictionary with detected fields and screenshot path
         """
-        print(f"Navigating to: {url}")
-        await self.navigate(url)
+        if not url and not html_content:
+            raise ValueError("Either url or html_content must be provided")
+
+        if url and html_content:
+            raise ValueError("Only one of url or html_content should be provided")
+
+        if url:
+            print(f"Navigating to: {url}")
+            await self.navigate(url)
+            source = url
+        else:
+            print(f"Loading HTML content ({len(html_content)} characters)")
+            await self.load_html(html_content, base_url)
+            source = f"HTML content ({len(html_content)} chars)"
 
         print("Finding form fields...")
         fields = await self.find_fields()
@@ -432,7 +462,9 @@ class DivSelector:
         print(f"Screenshot saved to: {screenshot_path}")
 
         return {
+            "source": source,
             "url": url,
+            "html_length": len(html_content) if html_content else None,
             "fields": [f.to_dict() for f in fields],
             "field_count": len(fields),
             "screenshot_path": screenshot_path,
@@ -461,7 +493,24 @@ async def analyze_url(url: str, headless: bool = True, screenshot_dir: str = "sc
         Dictionary with analysis results
     """
     async with DivSelector(headless=headless, screenshot_dir=screenshot_dir) as selector:
-        return await selector.analyze_application_page(url)
+        return await selector.analyze_application_page(url=url)
+
+
+async def analyze_html(html_content: str, base_url: str = "about:blank", headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
+    """
+    Convenience function to analyze HTML content.
+
+    Args:
+        html_content: The HTML content to analyze
+        base_url: Base URL for resolving relative links
+        headless: Run browser in headless mode
+        screenshot_dir: Directory to save screenshots
+
+    Returns:
+        Dictionary with analysis results
+    """
+    async with DivSelector(headless=headless, screenshot_dir=screenshot_dir) as selector:
+        return await selector.analyze_application_page(html_content=html_content, base_url=base_url)
 
 
 def run_analysis(url: str, headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
@@ -479,28 +528,84 @@ def run_analysis(url: str, headless: bool = True, screenshot_dir: str = "screens
     return asyncio.run(analyze_url(url, headless, screenshot_dir))
 
 
+def run_html_analysis(html_content: str, base_url: str = "about:blank", headless: bool = True, screenshot_dir: str = "screenshots") -> dict:
+    """
+    Synchronous wrapper for analyze_html.
+
+    Args:
+        html_content: The HTML content to analyze
+        base_url: Base URL for resolving relative links
+        headless: Run browser in headless mode
+        screenshot_dir: Directory to save screenshots
+
+    Returns:
+        Dictionary with analysis results
+    """
+    return asyncio.run(analyze_html(html_content, base_url, headless, screenshot_dir))
+
+
 # Example usage and CLI
 if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 2:
-        print("Usage: python divselection.py <url>")
-        print("Example: python divselection.py https://jobs.example.com/apply")
+        print("Usage:")
+        print("  URL analysis:  python divselection.py <url>")
+        print("  HTML analysis: python divselection.py --html <html_file_path>")
+        print("Examples:")
+        print("  python divselection.py https://jobs.example.com/apply")
+        print("  python divselection.py --html application_form.html")
+        print("Options:")
+        print("  --visible: Run browser in visible mode (default: headless)")
         sys.exit(1)
 
-    target_url = sys.argv[1]
     headless_mode = "--visible" not in sys.argv
 
-    print(f"Analyzing: {target_url}")
-    print(f"Headless mode: {headless_mode}")
-    print("-" * 50)
+    if "--html" in sys.argv:
+        # HTML file analysis
+        html_file_path = None
+        try:
+            html_file_index = sys.argv.index("--html") + 1
+            if html_file_index >= len(sys.argv):
+                print("Error: No HTML file path provided after --html")
+                sys.exit(1)
 
-    result = run_analysis(target_url, headless=headless_mode)
+            html_file_path = sys.argv[html_file_index]
+
+            with open(html_file_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+
+            print(f"Analyzing HTML file: {html_file_path}")
+            print(f"HTML content length: {len(html_content)} characters")
+            print(f"Headless mode: {headless_mode}")
+            print("-" * 50)
+
+            result = run_html_analysis(html_content, headless=headless_mode)
+
+        except FileNotFoundError:
+            print(f"Error: HTML file '{html_file_path or 'unknown'}' not found")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error reading HTML file: {e}")
+            sys.exit(1)
+    else:
+        # URL analysis
+        target_url = sys.argv[1]
+
+        print(f"Analyzing URL: {target_url}")
+        print(f"Headless mode: {headless_mode}")
+        print("-" * 50)
+
+        result = run_analysis(target_url, headless=headless_mode)
 
     print("\n" + "=" * 50)
     print("ANALYSIS RESULTS")
     print("=" * 50)
-    print(f"URL: {result['url']}")
+    print(f"Source: {result['source']}")
+    if result.get('url'):
+        print(f"URL: {result['url']}")
+    if result.get('html_length'):
+        print(f"HTML content length: {result['html_length']} characters")
     print(f"Total fields found: {result['field_count']}")
     print(f"Screenshot saved to: {result['screenshot_path']}")
     print("\nField Summary:")
