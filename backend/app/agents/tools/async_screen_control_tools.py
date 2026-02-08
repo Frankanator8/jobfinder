@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 # Configure pyautogui
 pyautogui.FAILSAFE = False
-pyautogui.PAUSE = 0.05  # Small pause between actions
+pyautogui.PAUSE = 0.2  # Longer pause between actions for sequential execution
 
 
 class MoveMouseInput(BaseModel):
@@ -56,7 +56,7 @@ class FillFieldInput(BaseModel):
 class MoveMouseTool(BaseTool):
     """Tool to move mouse cursor asynchronously"""
     name = "move_mouse"
-    description = "Move mouse cursor to specified coordinates. Input: x, y coordinates and optional duration in seconds."
+    description = "Move mouse cursor to specified coordinates. WAIT for this to complete before next action. Input: x, y coordinates and optional duration in seconds."
     args_schema = MoveMouseInput
     
     def _run(self, x: int, y: int, duration: float = 0.3) -> str:
@@ -70,18 +70,23 @@ class MoveMouseTool(BaseTool):
     async def _arun(self, x: int, y: int, duration: float = 0.3) -> str:
         """Execute the tool asynchronously"""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run, x, y, duration)
+        result = await loop.run_in_executor(None, self._run, x, y, duration)
+        await asyncio.sleep(0.3)  # Wait after moving mouse
+        return result
 
 
 class ClickMouseTool(BaseTool):
     """Tool to click mouse asynchronously"""
     name = "click_mouse"
-    description = "Click mouse at specified coordinates. Input: x, y coordinates, button (left/right/middle), and number of clicks."
+    description = "Click mouse at specified coordinates. WAIT for this to complete (0.4s delay) before next action. NOTE: Triple click (clicks=3) is disabled. Input: x, y coordinates, button (left/right/middle), and number of clicks (max 2)."
     args_schema = ClickMouseInput
     
     def _run(self, x: int, y: int, button: str = "left", clicks: int = 1) -> str:
         """Execute the tool synchronously"""
         try:
+            # Triple click is disabled
+            if clicks == 3:
+                return "Triple click is disabled. Cannot perform triple click."
             pyautogui.click(x, y, button=button, clicks=clicks)
             return f"Mouse {button} clicked {clicks} time(s) at ({x}, {y})"
         except Exception as e:
@@ -89,19 +94,27 @@ class ClickMouseTool(BaseTool):
     
     async def _arun(self, x: int, y: int, button: str = "left", clicks: int = 1) -> str:
         """Execute the tool asynchronously"""
+        # Triple click is disabled
+        if clicks == 3:
+            return "Triple click is disabled. Cannot perform triple click."
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run, x, y, button, clicks)
+        result = await loop.run_in_executor(None, self._run, x, y, button, clicks)
+        await asyncio.sleep(0.4)  # Wait after clicking to allow UI to respond
+        return result
 
 
 class TypeTextTool(BaseTool):
     """Tool to type text asynchronously"""
     name = "type_text"
-    description = "Type text at current cursor position. Input: text to type and optional interval between keystrokes."
+    description = "Type text at current cursor position. WAIT for this to complete (0.3s delay) before next action. Input: text to type and optional interval between keystrokes."
     args_schema = TypeTextInput
     
     def _run(self, text: str, interval: Optional[float] = None) -> str:
         """Execute the tool synchronously"""
         try:
+            # Use default interval if None is provided
+            if interval is None:
+                interval = 0.05  # Default interval between keystrokes
             pyautogui.write(text, interval=interval)
             return f"Typed text: {text[:50]}{'...' if len(text) > 50 else ''}"
         except Exception as e:
@@ -110,18 +123,27 @@ class TypeTextTool(BaseTool):
     async def _arun(self, text: str, interval: Optional[float] = None) -> str:
         """Execute the tool asynchronously"""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run, text, interval)
+        # Use default interval if None is provided
+        if interval is None:
+            interval = 0.05
+        result = await loop.run_in_executor(None, self._run, text, interval)
+        await asyncio.sleep(0.3)  # Wait after typing
+        return result
 
 
 class PressKeyTool(BaseTool):
     """Tool to press keyboard keys asynchronously"""
     name = "press_key"
-    description = "Press keyboard key(s). Supports combinations like 'ctrl+a', 'enter', 'tab'. Input: keys to press."
+    description = "Press keyboard key(s). WAIT for this to complete (0.3s delay) before next action. NOTE: 'a' key, 'delete' key, and 'ctrl+a' are disabled. Supports combinations like 'enter', 'tab', 'backspace'. Input: keys to press."
     args_schema = PressKeyInput
     
     def _run(self, keys: str, presses: int = 1) -> str:
         """Execute the tool synchronously"""
         try:
+            # Disable 'a' key, 'delete' key, and Ctrl+A combinations
+            keys_lower = keys.lower()
+            if keys_lower in ['a', 'delete', 'del'] or 'ctrl+a' in keys_lower or 'ctrl+a' in keys_lower.replace(' ', ''):
+                return f"Key '{keys}' is disabled. Cannot press this key."
             for _ in range(presses):
                 pyautogui.press(keys)
             return f"Pressed '{keys}' {presses} time(s)"
@@ -130,14 +152,20 @@ class PressKeyTool(BaseTool):
     
     async def _arun(self, keys: str, presses: int = 1) -> str:
         """Execute the tool asynchronously"""
+        # Disable 'a' key, 'delete' key, and Ctrl+A combinations
+        keys_lower = keys.lower()
+        if keys_lower in ['a', 'delete', 'del'] or 'ctrl+a' in keys_lower or 'ctrl+a' in keys_lower.replace(' ', ''):
+            return f"Key '{keys}' is disabled. Cannot press this key."
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run, keys, presses)
+        result = await loop.run_in_executor(None, self._run, keys, presses)
+        await asyncio.sleep(0.3)  # Wait after pressing keys
+        return result
 
 
 class FillFieldTool(BaseTool):
     """Tool to fill a field by clicking and typing"""
     name = "fill_field"
-    description = "Fill a form field by clicking on it and typing text. Input: x, y coordinates (center of field), text to fill, and field type."
+    description = "Fill a form field by clicking on it and typing text. This tool handles the full sequence with delays. WAIT for it to complete before next action. Input: x, y coordinates (center of field), text to fill, and field type."
     args_schema = FillFieldInput
     
     def _run(self, x: int, y: int, text: str, field_type: str = "text") -> str:
@@ -148,35 +176,43 @@ class FillFieldTool(BaseTool):
             pyautogui.click(x, y, button="left", clicks=1)
             time.sleep(0.1)  # Small delay for focus
             
-            # Clear existing text
-            pyautogui.hotkey('ctrl', 'a')
-            time.sleep(0.05)
-            pyautogui.press('delete')
-            time.sleep(0.05)
+            # Clear existing text - DISABLED: Ctrl+A, delete, and triple click
+            # pyautogui.hotkey('ctrl', 'a')  # DISABLED - cannot use 'a' key
+            # time.sleep(0.05)
+            # pyautogui.press('delete')  # DISABLED - cannot use 'delete' key
+            # time.sleep(0.05)
+            # pyautogui.click(x, y, button="left", clicks=3)  # DISABLED - triple click not allowed
+            # Note: Field may still contain old text, new text will be appended
             
             # Type new text
-            pyautogui.write(text, interval=0.01)
+            pyautogui.write(text, interval=0.05)
             
             return f"Successfully filled {field_type} field at ({x}, {y}) with '{text}'"
         except Exception as e:
             return f"Error filling field: {str(e)}"
     
     async def _arun(self, x: int, y: int, text: str, field_type: str = "text") -> str:
-        """Execute the tool asynchronously"""
+        """Execute the tool asynchronously with sequential delays"""
         try:
             loop = asyncio.get_event_loop()
-            # Click to focus the field
-            await loop.run_in_executor(None, pyautogui.click, x, y, "left", 1)
-            await asyncio.sleep(0.1)  # Small delay for focus
             
-            # Clear existing text
-            await loop.run_in_executor(None, pyautogui.hotkey, 'ctrl', 'a')
-            await asyncio.sleep(0.05)
-            await loop.run_in_executor(None, pyautogui.press, 'delete')
-            await asyncio.sleep(0.05)
+            # Step 1: Click to focus the field
+            # Use lambda to properly pass button and clicks as keyword arguments
+            await loop.run_in_executor(None, lambda: pyautogui.click(x, y, button="left", clicks=1))
+            await asyncio.sleep(0.5)  # Wait for field to focus
             
-            # Type new text
-            await loop.run_in_executor(None, pyautogui.write, text, 0.01)
+            # Step 2: Clear existing text - DISABLED: Ctrl+A, delete, and triple click
+            # await loop.run_in_executor(None, pyautogui.hotkey, 'ctrl', 'a')  # DISABLED - cannot use 'a' key
+            # await asyncio.sleep(0.3)  # Wait after select all
+            # await loop.run_in_executor(None, pyautogui.press, 'delete')  # DISABLED - cannot use 'delete' key
+            # await asyncio.sleep(0.3)  # Wait after delete
+            # await loop.run_in_executor(None, pyautogui.click, x, y, "left", 3)  # DISABLED - triple click not allowed
+            # Note: Field may still contain old text, new text will be appended
+            
+            # Step 3: Type new text
+            # Use lambda to properly pass interval as keyword argument
+            await loop.run_in_executor(None, lambda: pyautogui.write(text, interval=0.05))
+            await asyncio.sleep(0.4)  # Wait after typing to ensure text is entered
             
             return f"Successfully filled {field_type} field at ({x}, {y}) with '{text}'"
         except Exception as e:

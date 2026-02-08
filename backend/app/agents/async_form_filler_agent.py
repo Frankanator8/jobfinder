@@ -75,15 +75,25 @@ Your capabilities:
 - Clear existing text before typing (Ctrl+A, Delete)
 - Handle different field types appropriately
 
-IMPORTANT RULES:
+CRITICAL RULES - EXECUTE SEQUENTIALLY:
 1. You will receive bounding boxes (x, y, width, height) for each field
 2. Calculate the center of each field: center_x = x + width/2, center_y = y + height/2
 3. Use the center coordinates to click on fields
-4. Always click on a field before typing to focus it
-5. Clear existing text (Ctrl+A, then Delete) before typing new text
-6. Wait 0.1-0.2 seconds between actions for the UI to respond
-7. Fill fields in the order they are provided
-8. Do NOT take screenshots - you only have bounding box information
+4. ALWAYS execute ONE action at a time - wait for each tool to complete before calling the next
+5. For each field, follow this EXACT sequence:
+   a. Click on the field center coordinates (wait for it to complete)
+   b. Wait 0.5 seconds
+   c. Press Ctrl+A to select all (wait for it to complete)
+   d. Wait 0.3 seconds
+   e. Press Delete to clear (wait for it to complete)
+   f. Wait 0.3 seconds
+   g. Type the text (wait for it to complete)
+   h. Wait 0.5 seconds before moving to next field
+6. NEVER call multiple tools in rapid succession - each tool call must complete before the next
+7. Fill fields ONE AT A TIME in the order provided
+8. Wait at least 0.5 seconds between filling different fields
+9. Do NOT take screenshots - you only have bounding box information
+10. The tools already have built-in delays - do NOT add extra delays, just use them sequentially
 
 Field types you can handle:
 - text, email, phone, name: Regular text input fields - click, clear, type
@@ -204,15 +214,23 @@ Be precise with coordinates and methodical in your approach. Fill one field at a
 
 {chr(10).join(field_descriptions)}
 
-Instructions:
-1. For each field, click on it using the center coordinates provided
-2. Clear any existing text (Ctrl+A, then Delete)
-3. Type the value provided
-4. Wait {delay_between_fields} seconds between fields
-5. Be precise with coordinates
-6. Fill fields one at a time in the order listed
+CRITICAL INSTRUCTIONS - EXECUTE SEQUENTIALLY:
+1. Fill fields ONE AT A TIME in the order listed - do NOT rush
+2. For EACH field, follow this exact sequence:
+   - Step 1: Click on the field using center coordinates (use click_mouse tool)
+   - Step 2: WAIT for the click to complete (the tool handles this)
+   - Step 3: Press Ctrl+A to select all text (use press_key tool with 'ctrl+a')
+   - Step 4: WAIT for the key press to complete
+   - Step 5: Press Delete to clear (use press_key tool with 'delete')
+   - Step 6: WAIT for the delete to complete
+   - Step 7: Type the value (use type_text tool)
+   - Step 8: WAIT for typing to complete
+   - Step 9: Wait an additional {delay_between_fields} seconds before starting the next field
+3. NEVER call multiple tools at once - each tool must complete before calling the next
+4. Be precise with coordinates
+5. The tools have built-in delays - trust them and execute sequentially
 
-Start filling the fields now."""
+Start with the FIRST field only. Complete it fully before moving to the next."""
         
         try:
             # Execute agent asynchronously
