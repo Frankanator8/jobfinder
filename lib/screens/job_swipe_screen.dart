@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 import '../models/job.dart';
 import '../models/user_profile.dart';
+import '../services/auth_service.dart';
 import '../widgets/swipeable_card_stack.dart';
 import 'user_info_screen.dart';
 
 class JobSwipeScreen extends StatefulWidget {
   final VoidCallback? onThemeToggle;
-  
-  const JobSwipeScreen({super.key, this.onThemeToggle});
+  final UserProfile? userProfile;
+  final Function(UserProfile)? onProfileUpdated;
+
+  const JobSwipeScreen({
+    super.key,
+    this.onThemeToggle,
+    this.userProfile,
+    this.onProfileUpdated,
+  });
 
   @override
   State<JobSwipeScreen> createState() => _JobSwipeScreenState();
@@ -24,6 +32,7 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
   @override
   void initState() {
     super.initState();
+    _userProfile = widget.userProfile;
     _loadJobs();
   }
 
@@ -72,7 +81,12 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           salary: '\$110k - \$140k',
           description:
               'Lead product strategy and work with cross-functional teams to deliver amazing products. Drive product vision and roadmap.',
-          requirements: ['Product Strategy', 'Agile', 'Analytics', 'Leadership'],
+          requirements: [
+            'Product Strategy',
+            'Agile',
+            'Analytics',
+            'Leadership',
+          ],
           type: 'Full-time',
         ),
         Job(
@@ -105,7 +119,7 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     setState(() {
       // Remove the swiped job from the list
       _jobs.removeWhere((j) => j.id == job.id);
-      
+
       if (isLiked) {
         _likedJobs.add(job);
       } else {
@@ -129,19 +143,16 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                 isLiked
                     ? 'Saved: ${job.title} at ${job.company}'
                     : 'Passed: ${job.title}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w500,
-                ),
+                style: const TextStyle(fontWeight: FontWeight.w500),
               ),
             ),
           ],
         ),
         duration: const Duration(seconds: 2),
-        backgroundColor: isLiked ? const Color(0xFF10B981) : const Color(0xFF6B7280),
+        backgroundColor:
+            isLiked ? const Color(0xFF10B981) : const Color(0xFF6B7280),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
     );
@@ -150,7 +161,7 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF202124) : Colors.white,
       appBar: AppBar(
@@ -172,14 +183,19 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => UserInfoScreen(
-                    initialProfile: _userProfile,
-                    onSave: (profile) {
-                      setState(() {
-                        _userProfile = profile;
-                      });
-                    },
-                  ),
+                  builder:
+                      (context) => UserInfoScreen(
+                        initialProfile: _userProfile,
+                        onSave: (profile) async {
+                          setState(() {
+                            _userProfile = profile;
+                          });
+                          // Save to Firestore via the callback
+                          if (widget.onProfileUpdated != null) {
+                            await widget.onProfileUpdated!(profile);
+                          }
+                        },
+                      ),
                 ),
               );
             },
@@ -187,10 +203,7 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           ),
           // Theme toggle button
           IconButton(
-            icon: Icon(
-              isDark ? Icons.light_mode : Icons.dark_mode,
-              size: 20,
-            ),
+            icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode, size: 20),
             onPressed: () {
               widget.onThemeToggle?.call();
             },
@@ -204,9 +217,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                 children: [
                   Icon(
                     Icons.bookmark_border,
-                    color: isDark
-                        ? Colors.grey.shade400
-                        : const Color(0xFF5F6368),
+                    color:
+                        isDark ? Colors.grey.shade400 : const Color(0xFF5F6368),
                     size: 24,
                   ),
                   if (_likedJobs.isNotEmpty)
@@ -244,7 +256,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                   context: context,
                   builder: (context) {
                     return AlertDialog(
-                      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                      backgroundColor:
+                          isDark ? const Color(0xFF1E293B) : Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
                       ),
@@ -256,105 +269,119 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                           color: isDark ? Colors.white : Colors.black87,
                         ),
                       ),
-                      content: _likedJobs.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 20),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.favorite_border,
-                                    size: 48,
-                                    color: isDark
-                                        ? Colors.grey.shade500
-                                        : Colors.grey.shade400,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'No saved jobs yet',
-                                    style: TextStyle(
-                                      color: isDark
-                                          ? Colors.grey.shade400
-                                          : Colors.grey.shade600,
-                                      fontSize: 15,
+                      content:
+                          _likedJobs.isEmpty
+                              ? Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 20,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.favorite_border,
+                                      size: 48,
+                                      color:
+                                          isDark
+                                              ? Colors.grey.shade500
+                                              : Colors.grey.shade400,
                                     ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : SizedBox(
-                              width: double.maxFinite,
-                              child: ListView.builder(
-                                shrinkWrap: true,
-                                itemCount: _likedJobs.length,
-                                itemBuilder: (context, index) {
-                                  final job = _likedJobs[index];
-                                  return Container(
-                                    margin: const EdgeInsets.only(bottom: 12),
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? const Color(0xFF334155)
-                                          : Colors.grey.shade50,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: isDark
-                                            ? Colors.grey.shade700
-                                            : Colors.grey.shade200,
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'No saved jobs yet',
+                                      style: TextStyle(
+                                        color:
+                                            isDark
+                                                ? Colors.grey.shade400
+                                                : Colors.grey.shade600,
+                                        fontSize: 15,
                                       ),
                                     ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 40,
-                                          height: 40,
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF6366F1)
-                                                .withOpacity(0.1),
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          child: const Icon(
-                                            Icons.work_outline,
-                                            color: Color(0xFF6366F1),
-                                            size: 20,
-                                          ),
+                                  ],
+                                ),
+                              )
+                              : SizedBox(
+                                width: double.maxFinite,
+                                child: ListView.builder(
+                                  shrinkWrap: true,
+                                  itemCount: _likedJobs.length,
+                                  itemBuilder: (context, index) {
+                                    final job = _likedJobs[index];
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color:
+                                            isDark
+                                                ? const Color(0xFF334155)
+                                                : Colors.grey.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color:
+                                              isDark
+                                                  ? Colors.grey.shade700
+                                                  : Colors.grey.shade200,
                                         ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                job.title,
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 15,
-                                                  color: isDark
-                                                      ? Colors.white
-                                                      : Colors.black87,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                job.company,
-                                                style: TextStyle(
-                                                  color: isDark
-                                                      ? Colors.grey.shade400
-                                                      : Colors.grey.shade600,
-                                                  fontSize: 13,
-                                                ),
-                                              ),
-                                            ],
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              color: const Color(
+                                                0xFF6366F1,
+                                              ).withOpacity(0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: const Icon(
+                                              Icons.work_outline,
+                                              color: Color(0xFF6366F1),
+                                              size: 20,
+                                            ),
                                           ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  job.title,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 15,
+                                                    color:
+                                                        isDark
+                                                            ? Colors.white
+                                                            : Colors.black87,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  job.company,
+                                                  style: TextStyle(
+                                                    color:
+                                                        isDark
+                                                            ? Colors
+                                                                .grey
+                                                                .shade400
+                                                            : Colors
+                                                                .grey
+                                                                .shade600,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
                               ),
-                            ),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(context),
@@ -368,9 +395,10 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                             'Close',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
-                              color: isDark
-                                  ? Colors.grey.shade300
-                                  : Colors.black87,
+                              color:
+                                  isDark
+                                      ? Colors.grey.shade300
+                                      : Colors.black87,
                             ),
                           ),
                         ),
@@ -381,6 +409,15 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
               },
             ),
           ),
+          // Sign out button
+          IconButton(
+            icon: const Icon(Icons.logout, size: 20),
+            onPressed: () async {
+              await AuthService().signOut();
+            },
+            tooltip: 'Sign Out',
+          ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
@@ -398,5 +435,3 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     );
   }
 }
-
-
