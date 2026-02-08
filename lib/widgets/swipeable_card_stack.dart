@@ -5,17 +5,11 @@ import 'job_card.dart';
 class SwipeableCardStack extends StatefulWidget {
   final List<Job> jobs;
   final Function(Job job, bool isLiked)? onSwipe;
-  final VoidCallback? onLoadMore;
-  final bool isLoadingMore;
-  final bool allJobsExhausted;
 
   const SwipeableCardStack({
     super.key,
     required this.jobs,
     this.onSwipe,
-    this.onLoadMore,
-    this.isLoadingMore = false,
-    this.allJobsExhausted = false,
   });
 
   @override
@@ -243,9 +237,7 @@ class SwipeableCardStackState extends State<SwipeableCardStack>
               ),
               const SizedBox(height: 24),
               Text(
-                widget.allJobsExhausted
-                    ? 'No more jobs'
-                    : 'All caught up!',
+                'All caught up!',
                 style: TextStyle(
                   fontSize: 24,
                   color: isDark
@@ -257,9 +249,7 @@ class SwipeableCardStackState extends State<SwipeableCardStack>
               ),
               const SizedBox(height: 8),
               Text(
-                widget.allJobsExhausted
-                    ? 'You\'ve seen every available job.\nCheck back later for new postings!'
-                    : 'You\'ve seen all jobs in this batch.',
+                'You\'ve seen all available jobs.\nCheck back later for new opportunities.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
@@ -269,25 +259,6 @@ class SwipeableCardStackState extends State<SwipeableCardStack>
                   height: 1.5,
                 ),
               ),
-              const SizedBox(height: 24),
-              if (!widget.allJobsExhausted && widget.onLoadMore != null)
-                widget.isLoadingMore
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      )
-                    : ElevatedButton.icon(
-                        onPressed: widget.onLoadMore,
-                        icon: const Icon(Icons.refresh_rounded, size: 20),
-                        label: const Text('Load 10 more'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 14,
-                          ),
-                        ),
-                      ),
             ],
           ),
         ),

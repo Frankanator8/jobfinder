@@ -95,4 +95,3 @@ coverage.xml
 /backend/databasecreds.json
 
 /lib/firebase_options.dart
-/ios/Runner/GoogleService-Info.plist
