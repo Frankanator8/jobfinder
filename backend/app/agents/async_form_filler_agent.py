@@ -111,26 +111,28 @@ CRITICAL RULES - EXECUTE SEQUENTIALLY:
    b. For TEXT/EMAIL/PHONE/TEXTAREA: Click, wait, type, wait
    c. For DROPDOWN/SELECT (CRITICAL): 
       - Click to OPEN the dropdown
-      - Wait 0.5s for menu to appear
+      - Wait 0.2s for menu to appear
       - Type the option text (from data provided)
-      - Wait 0.3s
+      - Wait 0.1s
       - Press Enter to select
    d. For CHECKBOX: Click to toggle
    e. For RADIO: Click to select
    NOTE: Do NOT try to clear text - Ctrl+A and Delete are DISABLED. Just click and type.
 8. NEVER call multiple tools in rapid succession - each tool call must complete before the next
-9. Fill fields ONE AT A TIME in the order provided
-10. Wait at least 0.5 seconds between filling different fields
-11. Do NOT take screenshots - you only have bounding box information
-12. The tools already have built-in delays - do NOT add extra delays, just use them sequentially
-13. DO NOT attempt to use Ctrl+A, Delete key, or triple click - these are disabled and will fail
+9. Fill fields ONE AT A TIME in the order provided - you MUST fill ALL fields on EVERY page
+10. Start with the FIRST field and fill EVERY field listed - do not skip fields
+11. Wait at least 0.5 seconds between filling different fields
+12. Do NOT take screenshots - you only have bounding box information
+13. The tools already have built-in delays - do NOT add extra delays, just use them sequentially
+14. DO NOT attempt to use Ctrl+A, Delete key, or triple click - these are disabled and will fail
+15. CRITICAL: On each new page, you MUST fill ALL fields starting from the FIRST field - match each field's LABEL to the best data
 
 Field types you can handle:
 - text, email, phone, name: Regular text input fields - click, then type (text may append or replace automatically)
 - textarea: Multi-line text fields - click, then type (text may append or replace automatically)
 - select, dropdown: CRITICAL - Dropdown/select fields require special handling:
   * Step 1: Click on the dropdown field to open it
-  * Step 2: Wait for dropdown menu to appear (0.3-0.5 seconds)
+  * Step 2: Wait for dropdown menu to appear (0.2 seconds)
   * Step 3: Type the option text to search/select it (the value provided in the data)
   * Step 4: Press Enter to confirm the selection
   * If typing doesn't work, try clicking on the option directly if visible
@@ -150,12 +152,15 @@ You will receive:
 
 CRITICAL MATCHING INSTRUCTIONS:
 - Each field will have a LABEL (e.g., "First Name", "Email", "Position", "Experience Years")
-- You must match each field's LABEL to the most appropriate data key from the available user data
+- You MUST match each field's LABEL to the most appropriate data key from the available user data
+- LABEL-BASED MATCHING IS PRIMARY: Compare the field's LABEL to data keys to find the best semantic match
 - Look for semantic matches: "First Name" → "firstname" or "first name", "Email" → "email", etc.
-- DO NOT use the same data for multiple fields - each field should get its own appropriate data
-- DO NOT repeat data across pages - if you've used "firstname" on page 1, don't use it again on page 2
-- If a field label doesn't match any available data, skip that field
-- The system will suggest a match, but you should verify it makes sense based on the label
+- You MUST fill ALL fields on EVERY page - do not skip fields unless they have absolutely no matching data
+- DO NOT use the same data for multiple fields on the same page - each field should get its own appropriate data
+- You CAN reuse data across different pages if the field labels are the same (e.g., "Email" on page 1 and "Email" on page 2)
+- If a field label doesn't match any available data after careful checking, you may skip it
+- The system will suggest a match with a score (0-100), but you should verify it makes semantic sense based on the label
+- Higher match scores (80-100) are very reliable, lower scores (40-60) require more careful verification
 
 IMPORTANT: After filling all input fields, you will be instructed to click on any next/submit button if one exists. Do NOT click buttons before filling all input fields. Be precise with coordinates and methodical in your approach. Fill one field at a time."""),
             MessagesPlaceholder(variable_name="chat_history"),
@@ -182,7 +187,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
         self,
         fields: List[DivFormField],
         data: Dict[str, Any],
-        delay_between_fields: float = 0.3,
+        delay_between_fields: float = 0.1,
         current_url: Optional[str] = None,
         current_title: Optional[str] = None,
         step_number: Optional[int] = None,
@@ -262,36 +267,67 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             field_bottom_y = field_y + field_height
             
             # Find best matching data key based on label similarity
+            # Priority: Label > Name > ID, with various matching strategies
             best_match_key = None
             best_match_value = None
             best_score = 0
             
+            # Normalize field label for matching (remove common words, punctuation)
+            field_label_normalized = field_label_lower.replace("'", "").replace("-", " ").replace("_", " ")
+            field_label_words = [w for w in field_label_normalized.split() if len(w) > 2]
+            
             for key, val in data.items():
                 key_lower = key.lower()
+                key_normalized = key_lower.replace("'", "").replace("-", " ").replace("_", " ")
+                key_words = [w for w in key_normalized.split() if len(w) > 2]
                 score = 0
                 
                 # Exact match gets highest score
                 if key_lower == field_label_lower:
                     score = 100
+                # Normalized exact match (ignoring punctuation/spaces)
+                elif key_normalized == field_label_normalized:
+                    score = 95
                 # Field name match
                 elif field_name and key_lower == field_name.lower():
                     score = 80
                 # Field ID match
                 elif key_lower == field_id.lower():
                     score = 70
-                # Label contains key or key contains label
+                # Label contains key or key contains label (full string)
                 elif key_lower in field_label_lower or field_label_lower in key_lower:
                     score = 60
-                # Partial word matches
-                elif any(word in field_label_lower for word in key_lower.split() if len(word) > 3):
+                # All words from key are in label (or vice versa)
+                elif len(key_words) > 0 and all(any(kw in w or w in kw for w in field_label_words) for kw in key_words):
+                    score = 55
+                elif len(field_label_words) > 0 and all(any(flw in w or w in flw for w in key_words) for flw in field_label_words):
+                    score = 55
+                # Most words match
+                elif len(key_words) > 0 and len(field_label_words) > 0:
+                    matching_words = sum(1 for kw in key_words if any(kw in flw or flw in kw for flw in field_label_words))
+                    if matching_words >= len(key_words) * 0.7:  # 70% of words match
+                        score = 50
+                    elif matching_words >= len(key_words) * 0.5:  # 50% of words match
+                        score = 45
+                # Partial word matches (individual words)
+                elif any(word in field_label_lower for word in key_words if len(word) > 3):
                     score = 40
-                elif any(word in key_lower for word in field_label_lower.split() if len(word) > 3):
+                elif any(word in key_lower for word in field_label_words if len(word) > 3):
                     score = 40
+                # Single word overlap
+                elif any(kw == flw for kw in key_words for flw in field_label_words):
+                    score = 35
                 
                 if score > best_score:
                     best_score = score
                     best_match_key = key
                     best_match_value = val
+            
+            # Log the match for debugging
+            if best_match_key:
+                logger.info(f"  ✓ Field '{field_label}' → Matched to data key '{best_match_key}' (score: {best_score})")
+            else:
+                logger.warning(f"  ⚠️  Field '{field_label}' → No match found in available data")
             
             # Build field description with label prominently displayed
             field_desc = (
@@ -408,6 +444,14 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
         delay_dropdown_field = f"   - Step 7: Wait an additional {delay_between_fields} seconds before starting the next field"
         
         instruction_parts.extend([
+            "=" * 60,
+            "TASK: FILL ALL FORM FIELDS ON THIS PAGE",
+            "=" * 60,
+            "",
+            f"You must fill ALL {len(field_descriptions)} fields listed below on this page.",
+            "Start with the FIRST field and work through them in order.",
+            "Match each field's LABEL to the best data from the available user data.",
+            "",
             "Fill out the following form fields on the screen using their bounding box coordinates.",
             "",
             "AVAILABLE USER DATA (choose the best match for each field based on the LABEL):",
@@ -420,15 +464,28 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "",
             "CRITICAL INSTRUCTIONS - EXECUTE SEQUENTIALLY:",
             "",
-            "MATCHING FIELDS TO DATA:",
-            "- Look at each field's LABEL (the most important identifier)",
-            "- Match the LABEL to the most appropriate data key from the 'AVAILABLE USER DATA' section above",
-            "- Use the suggested match if provided, but verify it makes sense",
-            "- For example: 'First Name' label should match 'firstname' or 'first name' data",
-            "- 'Email' label should match 'email' data",
-            "- 'Position' label should match 'position' or 'job title' data",
-            "- DO NOT repeat the same data on multiple pages - each field should get its own appropriate data",
-            "- If a field label doesn't match any data, skip that field",
+            "⚠️  MANDATORY: YOU MUST FILL ALL FIELDS ON THIS PAGE ⚠️",
+            "- You are on a NEW page (see CURRENT PAGE CONTEXT above)",
+            "- You MUST fill EVERY field listed below, starting from the FIRST field",
+            "- Do NOT skip any fields unless they truly have no matching data",
+            "- Fill fields in the EXACT order they are listed below",
+            "- Start with the FIRST field and work through them sequentially",
+            "",
+            "MATCHING FIELDS TO DATA (LABEL-BASED MATCHING IS CRITICAL):",
+            "- The PRIMARY way to match fields to data is by comparing the FIELD LABEL to the DATA KEY",
+            "- Look at each field's LABEL (shown as 'Field Label: ...' above) - this is the MOST IMPORTANT identifier",
+            "- Match the FIELD LABEL to the most semantically similar DATA KEY from 'AVAILABLE USER DATA'",
+            "- Use the suggested match if provided (it shows the match score), but verify it makes semantic sense",
+            "- Examples of good label-to-data matches:",
+            "  * Field Label 'First Name' → Data Key 'firstname' or 'first name'",
+            "  * Field Label 'Email' → Data Key 'email'",
+            "  * Field Label 'Phone' → Data Key 'phone' or 'telephone'",
+            "  * Field Label 'Position' → Data Key 'position' or 'job title'",
+            "  * Field Label 'Years of Experience' → Data Key 'experience' or 'years'",
+            "- If a field label is similar to a data key (even partially), use that data",
+            "- DO NOT repeat the same data on multiple pages unless the field labels are identical",
+            "- If a field label doesn't match any data semantically, you may skip it (but try hard to find a match first)",
+            "- The match score (0-100) indicates confidence - higher scores are better matches",
             "",
             "0. BEFORE interacting with any field or button - CHECK VISIBILITY AND SCROLL IF NEEDED:",
             "   - Use get_screen_info tool to get screen dimensions (width x height)",
@@ -444,13 +501,16 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "   - DO NOT use 0 clicks - that is invalid and will error",
             "   - Scroll in larger increments (5-10 clicks) if field is far off-screen",
             "   - After scrolling, check visibility again - repeat if still not fully visible",
-            "   - WAIT for scrolling to complete (0.5s delay built-in) before checking again",
+            "   - WAIT for scrolling to complete (0.2s delay built-in) before checking again",
             "   - DO NOT proceed to click/type until field is FULLY visible on screen",
-            "1. Fill fields ONE AT A TIME in the order listed - do NOT rush",
-            "2. For EACH field, follow this exact sequence based on field type:",
+            "1. FILL ALL FIELDS - Start with the FIRST field and fill EVERY field listed below",
+            "2. For EACH field (in order), follow this exact sequence based on field type:",
             "",
             "   For TEXT, EMAIL, PHONE, TEXTAREA, DATE fields:",
-            "   - Step 0: Look at the field's LABEL and match it to the best data from 'AVAILABLE USER DATA'",
+            "   - Step 0: Read the field's LABEL (shown in the field description above)",
+            "   - Step 0.1: Find the best matching data key from 'AVAILABLE USER DATA' by comparing the LABEL to data keys",
+            "   - Step 0.2: Use the suggested match if provided, or find the best semantic match yourself",
+            "   - Step 0.3: Once you've identified the matching data, proceed to fill the field",
             "   - Step 0.5: Check if field is FULLY visible (use get_screen_info, scroll if needed)",
             "   - Step 1: Click on the field using center coordinates (use click_mouse tool)",
             "   - Step 2: WAIT for the click to complete (the tool handles this)",
@@ -459,12 +519,15 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             delay_text_field,
             "",
             "   For DROPDOWN/SELECT fields (CRITICAL - special handling required):",
-            "   - Step 0: Look at the field's LABEL and match it to the best data from 'AVAILABLE USER DATA'",
+            "   - Step 0: Read the field's LABEL (shown in the field description above)",
+            "   - Step 0.1: Find the best matching data key from 'AVAILABLE USER DATA' by comparing the LABEL to data keys",
+            "   - Step 0.2: Use the suggested match if provided, or find the best semantic match yourself",
+            "   - Step 0.3: Once you've identified the matching data, proceed to fill the field",
             "   - Step 0.5: Check if field is FULLY visible (use get_screen_info, scroll if needed)",
             "   - Step 1: Click on the dropdown field to OPEN it (use click_mouse tool)",
-            "   - Step 2: WAIT 0.5 seconds for the dropdown menu to appear",
+            "   - Step 2: WAIT 0.2 seconds for the dropdown menu to appear",
             "   - Step 3: Type the matched option text to search/select it (use type_text tool)",
-            "   - Step 4: WAIT 0.3 seconds after typing",
+            "   - Step 4: WAIT 0.1 seconds after typing",
             "   - Step 5: Press Enter to confirm the selection (use press_key tool with 'enter')",
             "   - Step 6: WAIT for selection to complete",
             delay_dropdown_field,
@@ -499,7 +562,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "   - Step 0.5: Ensure button's Top Y >= 0 AND Bottom Y <= screen height before proceeding",
                 "   - Step 1: Use click_mouse tool with the button's center coordinates",
                 "   - Step 2: WAIT for the click to complete",
-                "   - Step 3: Wait 2-3 seconds for the new page to load",
+                "   - Step 3: Wait 0.5-1 seconds for the new page to load",
                 "   - NOTE: After clicking next, you will receive new fields from the next page",
             ])
         
@@ -519,7 +582,13 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
         
         instruction_parts.extend([
             "",
-            "Start with the FIRST field only. Complete it fully before moving to the next."
+            "⚠️  FINAL REMINDER:",
+            "- You MUST fill ALL fields listed above, starting from the FIRST field",
+            "- Match each field's LABEL to the best data key from 'AVAILABLE USER DATA'",
+            "- Fill fields ONE AT A TIME in the order they are listed",
+            "- Complete each field fully before moving to the next",
+            "- Do NOT skip fields unless they have absolutely no matching data",
+            "- Start filling NOW with the FIRST field in the list above"
         ])
         
         instruction = "\n".join(instruction_parts)
@@ -580,7 +649,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
         self,
         url: str,
         data: Dict[str, Any],
-        delay_between_fields: float = 0.3,
+        delay_between_fields: float = 0.1,
         headless: bool = True,
         max_steps: int = 10,
     ) -> Dict[str, Any]:
@@ -826,8 +895,10 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 
                 # Check if there's a next button to click
                 if next_buttons:
-                    print(f"Found {len(next_buttons)} next button(s). Agent should click it to proceed to next step...")
-                    logger.info(f"Next button detected - waiting for agent to click it...")
+                    print(f"Found {len(next_buttons)} next button(s). Clicking it to proceed to next step...")
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"GUARANTEEING NEXT BUTTON CLICK")
+                    logger.info(f"{'='*60}")
                     
                     # Store current page state before navigation (multiple detection methods)
                     previous_url = selector.page.url
@@ -850,231 +921,187 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         logger.warning(f"Could not get initial DOM hash: {e}")
                         previous_dom_hash = None
                     
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"NEXT BUTTON CLICKED - WAITING FOR NAVIGATION")
                     logger.info(f"Current URL before next click: {previous_url}")
                     logger.info(f"Current title before next click: {previous_title}")
                     logger.info(f"Current hash before next click: {previous_hash or 'None'}")
+                    
+                    # GUARANTEE: Actually click the next button programmatically
+                    import pyautogui
+                    next_button = next_buttons[0]  # Use the first next button
+                    bbox = next_button.bounding_box
+                    center_x = bbox.get("x", 0) + bbox.get("width", 0) // 2
+                    center_y = bbox.get("y", 0) + bbox.get("height", 0) // 2
+                    
+                    # Offset Y coordinate down a little (add 5-10 pixels)
+                    offset_down = 8  # Pixels to offset downward
+                    click_y = center_y + offset_down
+                    
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"CLICKING NEXT BUTTON")
+                    logger.info(f"Button center: ({center_x}, {center_y})")
+                    logger.info(f"Click position (offset down): ({center_x}, {click_y})")
+                    logger.info(f"Button: '{next_button.label or next_button.name or 'Unnamed'}'")
                     logger.info(f"{'='*60}")
                     
-                    # The agent execution should have clicked the next button
-                    # Wait a bit for the click to register
-                    await asyncio.sleep(2)
-                    
-                    # Wait for page navigation - monitor multiple indicators
-                    logger.info("Waiting for page navigation after next button click...")
-                    page_changed = False
-                    change_detected_by = []
-                    max_wait_time = 15  # Maximum seconds to wait
-                    poll_interval = 0.5  # Check every 0.5 seconds
-                    elapsed_time = 0
-                    
-                    # Note: Navigation event detection would need to be set up BEFORE the click
-                    # Since the agent already clicked, we'll rely on polling methods instead
-                    navigation_detected = False  # Tracked for logging purposes
-                    
-                    while elapsed_time < max_wait_time:
-                        await asyncio.sleep(poll_interval)
-                        elapsed_time += poll_interval
+                    # Ensure button is visible before clicking
+                    try:
+                        # Scroll if needed to make button visible
+                        screen_width, screen_height = pyautogui.size()
+                        button_y = bbox.get("y", 0)
+                        button_height = bbox.get("height", 0)
+                        button_bottom_y = button_y + button_height
                         
-                        # Method 1: Check URL change
-                        current_url = selector.page.url
-                        if current_url != previous_url:
-                            page_changed = True
-                            change_detected_by.append("URL")
-                            logger.info(f"\n{'='*60}")
-                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via URL)! ✓✓✓")
-                            logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
-                            logger.info(f"  Previous URL: {previous_url}")
-                            logger.info(f"  New URL: {current_url}")
-                            logger.info(f"{'='*60}")
-                            print(f"\n✓✓✓ Page Changed (URL) after {elapsed_time:.1f}s: {previous_url} → {current_url}")
-                            break
+                        if button_y < 0 or button_bottom_y > screen_height:
+                            logger.info("Button not fully visible, scrolling to make it visible...")
+                            if button_y < 0:
+                                # Scroll up
+                                pyautogui.scroll(-5)
+                            else:
+                                # Scroll down
+                                pyautogui.scroll(5)
+                            await asyncio.sleep(0.3)
                         
-                        # Method 2: Check hash fragment change (for SPAs with hash routing)
-                        current_hash = current_url.split('#')[1] if '#' in current_url else None
-                        if current_hash != previous_hash:
-                            page_changed = True
-                            change_detected_by.append("Hash")
-                            logger.info(f"\n{'='*60}")
-                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via Hash)! ✓✓✓")
-                            logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
-                            logger.info(f"  Previous hash: {previous_hash or 'None'}")
-                            logger.info(f"  New hash: {current_hash}")
-                            logger.info(f"{'='*60}")
-                            print(f"\n✓✓✓ Page Changed (Hash) after {elapsed_time:.1f}s")
-                            break
+                        # Move mouse to button position (offset down from center)
+                        pyautogui.moveTo(center_x, click_y, duration=0.1)
+                        await asyncio.sleep(0.1)
                         
-                        # Method 3: Check page title change
+                        # Click the next button at offset position
+                        pyautogui.click(center_x, click_y, button='left', clicks=1)
+                        logger.info(f"✓ Next button clicked at ({center_x}, {click_y}) - offset {offset_down}px down from center")
+                        
+                        # Wait for click to register
+                        await asyncio.sleep(0.5)
+                        
+                        # Verify click was successful by checking if page state changed
                         try:
-                            current_title = await selector.page.title()
-                            if current_title != previous_title:
-                                page_changed = True
-                                change_detected_by.append("Title")
-                                logger.info(f"\n{'='*60}")
-                                logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via Title)! ✓✓✓")
-                                logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
-                                logger.info(f"  Previous title: {previous_title}")
-                                logger.info(f"  New title: {current_title}")
-                                logger.info(f"{'='*60}")
-                                print(f"\n✓✓✓ Page Changed (Title) after {elapsed_time:.1f}s: {previous_title} → {current_title}")
-                                break
+                            # Quick check if URL changed (indicates navigation started)
+                            current_url_check = selector.page.url
+                            if current_url_check != previous_url:
+                                logger.info(f"✓ Click verified - URL changed: {previous_url} → {current_url_check}")
+                            else:
+                                logger.info(f"✓ Click executed - waiting for navigation...")
                         except Exception as e:
-                            logger.debug(f"Could not check title: {e}")
+                            logger.warning(f"Could not verify click: {e}, proceeding anyway")
                         
-                        # Method 4: Check DOM content fingerprint (for SPAs without URL/title changes)
-                        if previous_dom_hash is not None:
-                            try:
-                                current_dom_hash = await selector.page.evaluate("""
-                                    () => {
-                                        const body = document.body;
-                                        if (!body) return '';
-                                        const text = body.innerText || body.textContent || '';
-                                        const formCount = document.querySelectorAll('form, input, select, textarea').length;
-                                        return text.substring(0, 100) + '|' + formCount;
-                                    }
-                                """)
-                                if current_dom_hash != previous_dom_hash:
-                                    page_changed = True
-                                    change_detected_by.append("DOM Content")
-                                    logger.info(f"\n{'='*60}")
-                                    logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via DOM Content)! ✓✓✓")
-                                    logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
-                                    logger.info(f"  Previous DOM hash: {previous_dom_hash[:50]}...")
-                                    logger.info(f"  New DOM hash: {current_dom_hash[:50]}...")
-                                    logger.info(f"{'='*60}")
-                                    print(f"\n✓✓✓ Page Changed (DOM Content) after {elapsed_time:.1f}s")
-                                    break
-                            except Exception as e:
-                                logger.debug(f"Could not check DOM hash: {e}")
-                    
-                    # Final check with all methods
-                    if not page_changed:
-                        current_url = selector.page.url
-                        current_hash = current_url.split('#')[1] if '#' in current_url else None
-                        
-                        # Final URL check
-                        if current_url != previous_url:
-                            page_changed = True
-                            change_detected_by.append("URL (final check)")
-                            logger.info(f"\n{'='*60}")
-                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (URL - final check)! ✓✓✓")
-                            logger.info(f"  Previous URL: {previous_url}")
-                            logger.info(f"  New URL: {current_url}")
-                            logger.info(f"{'='*60}")
-                        # Final hash check
-                        elif current_hash != previous_hash:
-                            page_changed = True
-                            change_detected_by.append("Hash (final check)")
-                            logger.info(f"\n{'='*60}")
-                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (Hash - final check)! ✓✓✓")
-                            logger.info(f"  Previous hash: {previous_hash or 'None'}")
-                            logger.info(f"  New hash: {current_hash}")
-                            logger.info(f"{'='*60}")
-                        # Final title check
-                        else:
-                            try:
-                                current_title = await selector.page.title()
-                                if current_title != previous_title:
-                                    page_changed = True
-                                    change_detected_by.append("Title (final check)")
-                                    logger.info(f"\n{'='*60}")
-                                    logger.info(f"✓✓✓ PAGE CHANGED DETECTED (Title - final check)! ✓✓✓")
-                                    logger.info(f"  Previous title: {previous_title}")
-                                    logger.info(f"  New title: {current_title}")
-                                    logger.info(f"{'='*60}")
-                            except Exception:
-                                pass
-                        
-                        if not page_changed:
-                            # Check DOM content one more time
-                            if previous_dom_hash is not None:
-                                try:
-                                    current_dom_hash = await selector.page.evaluate("""
-                                        () => {
-                                            const body = document.body;
-                                            if (!body) return '';
-                                            const text = body.innerText || body.textContent || '';
-                                            const formCount = document.querySelectorAll('form, input, select, textarea').length;
-                                            return text.substring(0, 100) + '|' + formCount;
-                                        }
-                                    """)
-                                    if current_dom_hash != previous_dom_hash:
-                                        page_changed = True
-                                        change_detected_by.append("DOM Content (final check)")
-                                        logger.info(f"\n{'='*60}")
-                                        logger.info(f"✓✓✓ PAGE CHANGED DETECTED (DOM Content - final check)! ✓✓✓")
-                                        logger.info(f"{'='*60}")
-                                except Exception:
-                                    pass
-                            
-                            if not page_changed:
-                                logger.info(f"\n{'='*60}")
-                                logger.info(f"⚠️  No page change detected after {max_wait_time}s wait")
-                                logger.info(f"  This may indicate:")
-                                logger.info(f"    - SPA (Single Page App) with no URL/title/DOM changes")
-                                logger.info(f"    - Page is still loading")
-                                logger.info(f"    - Navigation didn't occur")
-                                logger.info(f"  Previous URL: {previous_url}")
-                                logger.info(f"  Current URL: {current_url}")
-                                logger.info(f"  Previous title: {previous_title}")
-                                logger.info(f"  Navigation event detected: {navigation_detected}")
-                                logger.info(f"  (Will proceed anyway - fields will be re-detected)")
-                                logger.info(f"{'='*60}")
-                                # Still proceed - fields will be re-detected and may be different
-                                page_changed = True  # Assume change occurred even if not detected
-                                change_detected_by.append("Assumed (no detection)")
-                    
-                    if page_changed and change_detected_by:
-                        logger.info(f"Page change detected by: {', '.join(change_detected_by)}")
-                    
-                    # Wait for page to be fully loaded
-                    try:
-                        logger.info("Waiting for page to load (networkidle)...")
-                        await selector.page.wait_for_load_state("networkidle", timeout=10000)
-                        await asyncio.sleep(2)  # Additional wait for dynamic content to render
-                        logger.info("Page load complete")
                     except Exception as e:
-                        logger.warning(f"Page load wait timeout: {e}")
-                        await asyncio.sleep(3)  # Fallback wait
-                    
-                    # Get final page state (multiple methods) - ensure we have the latest state
-                    final_url = selector.page.url
-                    try:
-                        final_title = await selector.page.title()
-                    except Exception:
-                        final_title = previous_title
-                    final_hash = final_url.split('#')[1] if '#' in final_url else None
-                    
-                    # Verify page state is stable before proceeding
-                    logger.info(f"Verifying final page state...")
-                    logger.info(f"  Final URL: {final_url}")
-                    logger.info(f"  Final title: {final_title}")
-                    logger.info(f"  Final hash: {final_hash or 'None'}")
-                    
-                    # Wait a bit more for any final dynamic content
-                    await asyncio.sleep(1)
-                    
-                    # Double-check URL hasn't changed
-                    final_url_check = selector.page.url
-                    if final_url_check != final_url:
-                        logger.warning(f"⚠️  URL changed during final wait: {final_url} → {final_url_check}")
-                        final_url = final_url_check
+                        logger.error(f"Error clicking next button: {e}")
+                        logger.info("Attempting to continue anyway...")
+                        await asyncio.sleep(0.5)
                     
                     logger.info(f"\n{'='*60}")
-                    logger.info(f"NAVIGATION COMPLETE")
-                    logger.info(f"Final URL after navigation: {final_url}")
-                    logger.info(f"Final title: {final_title}")
-                    logger.info(f"Final hash: {final_hash or 'None'}")
-                    logger.info(f"Change detected by: {', '.join(change_detected_by) if change_detected_by else 'Multiple methods'}")
+                    logger.info(f"NEXT BUTTON CLICK CONFIRMED - PROCEEDING WITH URL WORKFLOW")
                     logger.info(f"{'='*60}")
-                    print(f"Navigated to: {final_url} (Title: {final_title})")
                     
-                    # IMPORTANT: Re-run divselection to get fresh fields from the new page
+                    # NEW WORKFLOW: Copy URL from browser, paste into input stream, then rescan
                     logger.info(f"\n{'='*60}")
-                    logger.info(f"RE-RUNNING divselection.find_fields() ON NEW PAGE")
+                    logger.info(f"URL COPY/PASTE WORKFLOW AFTER NEXT BUTTON CLICK")
+                    logger.info(f"Current URL before copy: {previous_url}")
+                    logger.info(f"{'='*60}")
+                    
+                    # Import pyautogui for direct control
+                    import pyautogui
+                    import platform
+                    
+                    try:
+                        # Step 1: Move mouse to hardcoded position (410, 105) - this is where the URL is in browser
+                        logger.info("Step 1: Moving mouse to fixed position (410, 105)...")
+                        pyautogui.moveTo(410, 105, duration=0.1)
+                        await asyncio.sleep(0.1)
+                        logger.info("✓ Mouse moved to (410, 105)")
+                        
+                        # Step 2: Click on the browser URL bar to focus/select it
+                        logger.info("Step 2: Clicking on browser URL bar to focus it...")
+                        pyautogui.click(410, 105, button='left', clicks=1)
+                        await asyncio.sleep(0.2)  # Wait for click to register and URL to be selected
+                        logger.info("✓ Clicked on URL bar")
+                        
+                        # Step 3: Copy the URL (Command+C on Mac, Ctrl+C on Windows/Linux)
+                        logger.info("Step 3: Copying URL to clipboard...")
+                        if platform.system() == 'Darwin':  # Mac
+                            pyautogui.hotkey('command', 'c')
+                        else:  # Windows/Linux
+                            pyautogui.hotkey('ctrl', 'c')
+                        await asyncio.sleep(0.2)  # Wait for copy to complete
+                        logger.info("✓ URL copied to clipboard")
+                        
+                        # Step 4: Tab once to move to the next available input field (Command+Tab on Mac, Ctrl+Tab on Windows/Linux)
+                        logger.info("Step 4: Pressing Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) to move to next input field...")
+                        if platform.system() == 'Darwin':  # Mac
+                            pyautogui.hotkey('command', 'tab')
+                        else:  # Windows/Linux
+                            pyautogui.hotkey('ctrl', 'tab')
+                        await asyncio.sleep(0.3)  # Wait for focus to move to next field
+                        logger.info("✓ Tabbed to next input field")
+                        
+                        # Step 5: Paste the URL (Command+V on Mac, Ctrl+V on Windows/Linux)
+                        logger.info("Step 5: Pasting URL into input field...")
+                        if platform.system() == 'Darwin':  # Mac
+                            pyautogui.hotkey('command', 'v')
+                        else:  # Windows/Linux
+                            pyautogui.hotkey('ctrl', 'v')
+                        await asyncio.sleep(0.5)  # Wait for paste and processing
+                        logger.info("✓ URL pasted into input field")
+                        
+                        # Step 6: Tab again (Command+Tab on Mac, Ctrl+Tab on Windows/Linux) - second tab after paste
+                        logger.info("Step 6: Pressing Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) again after paste...")
+                        if platform.system() == 'Darwin':  # Mac
+                            pyautogui.hotkey('command', 'tab')
+                        else:  # Windows/Linux
+                            pyautogui.hotkey('ctrl', 'tab')
+                        await asyncio.sleep(0.3)  # Wait for focus to move
+                        logger.info("✓ Tabbed again after paste")
+                        
+                        logger.info(f"\n{'='*60}")
+                        logger.info(f"URL COPY/PASTE WORKFLOW COMPLETE")
+                        logger.info(f"STOPPING CURRENT AGENT EXECUTION")
+                        logger.info(f"RESTARTING WITH FRESH divselection SCAN")
+                        logger.info(f"{'='*60}")
+                        
+                        # Step 7: Wait briefly for the pasted URL to be processed
+                        await asyncio.sleep(1.0)  # Wait for the input stream to process the URL
+                        
+                        # Step 8: The input stream should have navigated to the new URL
+                        # Wait for page to be ready
+                        try:
+                            await selector.page.wait_for_load_state("domcontentloaded", timeout=5000)
+                            await asyncio.sleep(0.5)  # Additional wait for dynamic content
+                        except Exception as e:
+                            logger.warning(f"Page load wait timeout: {e}, proceeding anyway")
+                            await asyncio.sleep(0.5)
+                        
+                        # Get the new URL after paste/navigation
+                        final_url = selector.page.url
+                        try:
+                            final_title = await selector.page.title()
+                        except Exception:
+                            final_title = previous_title
+                        final_hash = final_url.split('#')[1] if '#' in final_url else None
+                        
+                        logger.info(f"\n{'='*60}")
+                        logger.info(f"URL PROCESSING COMPLETE")
+                        logger.info(f"Final URL after paste: {final_url}")
+                        logger.info(f"Final title: {final_title}")
+                        logger.info(f"Final hash: {final_hash or 'None'}")
+                        logger.info(f"{'='*60}")
+                        print(f"URL processed: {final_url} (Title: {final_title})")
+                        
+                    except Exception as e:
+                        logger.error(f"Error in URL copy/paste workflow: {e}")
+                        logger.info("Falling back to standard navigation detection...")
+                        # Fallback: just get current URL
+                        final_url = selector.page.url
+                        try:
+                            final_title = await selector.page.title()
+                        except Exception:
+                            final_title = previous_title
+                        final_hash = final_url.split('#')[1] if '#' in final_url else None
+                    
+                    # CRITICAL: Immediately stop current agent execution and restart with fresh divselection scan
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"STOPPING CURRENT AGENT EXECUTION")
+                    logger.info(f"IMMEDIATELY RE-RUNNING divselection.find_fields() ON NEW PAGE")
                     logger.info(f"URL to analyze: {final_url}")
-                    logger.info(f"This will detect all fields on the new page and feed them to the agent")
+                    logger.info(f"Restarting agent with fresh fields from new page")
                     logger.info(f"{'='*60}")
                     
                     # Update tracking variables for next iteration comparison
@@ -1082,8 +1109,20 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     previous_title = final_title
                     previous_hash = final_hash
                     
-                    # Continue to next iteration - this will call find_fields() again on the new page
-                    # The fields will be fresh from the new URL/page
+                    # Immediately rescan with divselection to get fresh fields
+                    logger.info("Immediately rescanning page with divselection.find_fields()...")
+                    try:
+                        await selector.page.wait_for_load_state("domcontentloaded", timeout=3000)
+                    except Exception:
+                        pass
+                    
+                    # Get fresh fields immediately after paste
+                    fresh_fields = await selector.find_fields()
+                    logger.info(f"✓ Fresh scan complete - found {len(fresh_fields)} fields on new page")
+                    
+                    # Break out of current step and continue to next iteration
+                    # This will restart the agent with the fresh fields from the new page
+                    logger.info("Breaking out of current step to restart agent with fresh fields...")
                     continue
                 
                 # If there's a final submit button, the agent should have clicked it

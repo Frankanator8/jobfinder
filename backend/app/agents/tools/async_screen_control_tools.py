@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 # Configure pyautogui
 pyautogui.FAILSAFE = False
-pyautogui.PAUSE = 0.2  # Longer pause between actions for sequential execution
+pyautogui.PAUSE = 0.05  # Reduced pause for faster execution
 
 
 class MoveMouseInput(BaseModel):
@@ -80,18 +80,18 @@ class MoveMouseTool(BaseTool):
         except Exception as e:
             return f"Error moving mouse: {str(e)}"
     
-    async def _arun(self, x: int, y: int, duration: float = 0.3) -> str:
+    async def _arun(self, x: int, y: int, duration: float = 0.1) -> str:
         """Execute the tool asynchronously"""
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, self._run, x, y, duration)
-        await asyncio.sleep(0.3)  # Wait after moving mouse
+        await asyncio.sleep(0.05)  # Reduced wait after moving mouse
         return result
 
 
 class ClickMouseTool(BaseTool):
     """Tool to click mouse asynchronously"""
     name = "click_mouse"
-    description = "Click mouse at specified coordinates. WAIT for this to complete (0.4s delay) before next action. NOTE: Triple click (clicks=3) is disabled. Input: x, y coordinates, button (left/right/middle), and number of clicks (max 2)."
+    description = "Click mouse at specified coordinates. WAIT for this to complete (0.1s delay) before next action. NOTE: Triple click (clicks=3) is disabled. Input: x, y coordinates, button (left/right/middle), and number of clicks (max 2)."
     args_schema = ClickMouseInput
     
     def _run(self, x: int, y: int, button: str = "left", clicks: int = 1) -> str:
@@ -112,14 +112,14 @@ class ClickMouseTool(BaseTool):
             return "Triple click is disabled. Cannot perform triple click."
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, self._run, x, y, button, clicks)
-        await asyncio.sleep(0.4)  # Wait after clicking to allow UI to respond
+        await asyncio.sleep(0.1)  # Reduced wait after clicking
         return result
 
 
 class TypeTextTool(BaseTool):
     """Tool to type text asynchronously"""
     name = "type_text"
-    description = "Type text at current cursor position. WAIT for this to complete (0.3s delay) before next action. Input: text to type and optional interval between keystrokes."
+    description = "Type text at current cursor position. WAIT for this to complete (0.1s delay) before next action. Input: text to type and optional interval between keystrokes."
     args_schema = TypeTextInput
     
     def _run(self, text: str, interval: Optional[float] = None) -> str:
@@ -140,14 +140,14 @@ class TypeTextTool(BaseTool):
         if interval is None:
             interval = 0.05
         result = await loop.run_in_executor(None, self._run, text, interval)
-        await asyncio.sleep(0.3)  # Wait after typing
+        await asyncio.sleep(0.1)  # Reduced wait after typing
         return result
 
 
 class PressKeyTool(BaseTool):
     """Tool to press keyboard keys asynchronously"""
     name = "press_key"
-    description = "Press keyboard key(s). WAIT for this to complete (0.3s delay) before next action. CRITICAL: 'a' key, 'delete' key, and 'ctrl+a' are DISABLED and will return an error if attempted. DO NOT use these keys. Supports combinations like 'enter', 'tab', 'backspace', 'escape'. Input: keys to press."
+    description = "Press keyboard key(s). WAIT for this to complete (0.1s delay) before next action. CRITICAL: 'a' key, 'delete' key, and 'ctrl+a' are DISABLED and will return an error if attempted. DO NOT use these keys. Supports combinations like 'enter', 'tab', 'backspace', 'escape'. Input: keys to press."
     args_schema = PressKeyInput
     
     def _run(self, keys: str, presses: int = 1) -> str:
@@ -171,7 +171,7 @@ class PressKeyTool(BaseTool):
             return f"Key '{keys}' is disabled. Cannot press this key."
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, self._run, keys, presses)
-        await asyncio.sleep(0.3)  # Wait after pressing keys
+        await asyncio.sleep(0.1)  # Reduced wait after pressing keys
         return result
 
 
@@ -212,7 +212,7 @@ class FillFieldTool(BaseTool):
             # Step 1: Click to focus the field
             # Use lambda to properly pass button and clicks as keyword arguments
             await loop.run_in_executor(None, lambda: pyautogui.click(x, y, button="left", clicks=1))
-            await asyncio.sleep(0.5)  # Wait for field to focus
+            await asyncio.sleep(0.1)  # Reduced wait for field to focus
             
             # Step 2: Clear existing text - DISABLED: Ctrl+A, delete, and triple click
             # await loop.run_in_executor(None, pyautogui.hotkey, 'ctrl', 'a')  # DISABLED - cannot use 'a' key
@@ -225,7 +225,7 @@ class FillFieldTool(BaseTool):
             # Step 3: Type new text
             # Use lambda to properly pass interval as keyword argument
             await loop.run_in_executor(None, lambda: pyautogui.write(text, interval=0.05))
-            await asyncio.sleep(0.4)  # Wait after typing to ensure text is entered
+            await asyncio.sleep(0.1)  # Reduced wait after typing
             
             return f"Successfully filled {field_type} field at ({x}, {y}) with '{text}'"
         except Exception as e:
@@ -301,7 +301,7 @@ class ScrollTool(BaseTool):
             if x is not None and y is not None:
                 # Move mouse to the location first
                 await loop.run_in_executor(None, lambda: pyautogui.moveTo(x, y, duration=0.1))
-                await asyncio.sleep(0.1)  # Small delay after moving
+                await asyncio.sleep(0.05)  # Reduced delay after moving
                 # Scroll at current mouse position (which is now at x, y)
                 await loop.run_in_executor(None, pyautogui.scroll, clicks)
             else:
@@ -309,14 +309,110 @@ class ScrollTool(BaseTool):
                 screen_width, screen_height = await loop.run_in_executor(None, pyautogui.size)
                 center_x, center_y = screen_width // 2, screen_height // 2
                 await loop.run_in_executor(None, lambda: pyautogui.moveTo(center_x, center_y, duration=0.1))
-                await asyncio.sleep(0.1)  # Small delay after moving
+                await asyncio.sleep(0.05)  # Reduced delay after moving
                 await loop.run_in_executor(None, pyautogui.scroll, clicks)
             
-            await asyncio.sleep(0.5)  # Wait after scrolling for page to settle
+            await asyncio.sleep(0.2)  # Reduced wait after scrolling
             direction = "down" if clicks > 0 else "up"
             return f"Scrolled {abs(clicks)} clicks {direction}"
         except Exception as e:
             return f"Error scrolling: {str(e)}"
+
+
+class MoveMouseToFixedTool(BaseTool):
+    """Tool to move mouse to hardcoded position (410, 105)"""
+    name = "move_mouse_to_fixed"
+    description = "Move mouse cursor to the hardcoded position (410, 105). This is used for URL copying workflow. WAIT for this to complete before next action."
+    
+    def _run(self) -> str:
+        """Execute the tool synchronously"""
+        try:
+            pyautogui.moveTo(410, 105, duration=0.1)
+            return "Mouse moved to fixed position (410, 105)"
+        except Exception as e:
+            return f"Error moving mouse to fixed position: {str(e)}"
+    
+    async def _arun(self) -> str:
+        """Execute the tool asynchronously"""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, self._run)
+        await asyncio.sleep(0.05)  # Small wait after moving
+        return result
+
+
+class CopyTool(BaseTool):
+    """Tool to copy text using Command+C (Mac) or Ctrl+C (Windows/Linux)"""
+    name = "copy"
+    description = "Copy text to clipboard using Command+C (Mac) or Ctrl+C (Windows/Linux). WAIT for this to complete (0.1s delay) before next action."
+    
+    def _run(self) -> str:
+        """Execute the tool synchronously"""
+        try:
+            import platform
+            if platform.system() == 'Darwin':  # Mac
+                pyautogui.hotkey('command', 'c')
+            else:  # Windows/Linux
+                pyautogui.hotkey('ctrl', 'c')
+            return "Text copied to clipboard"
+        except Exception as e:
+            return f"Error copying: {str(e)}"
+    
+    async def _arun(self) -> str:
+        """Execute the tool asynchronously"""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, self._run)
+        await asyncio.sleep(0.1)  # Wait after copying
+        return result
+
+
+class TabTool(BaseTool):
+    """Tool to press Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) to move to next available field"""
+    name = "tab"
+    description = "Press Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) to move focus to the next available input field/tab. WAIT for this to complete (0.1s delay) before next action."
+    
+    def _run(self) -> str:
+        """Execute the tool synchronously"""
+        try:
+            import platform
+            if platform.system() == 'Darwin':  # Mac
+                pyautogui.hotkey('command', 'tab')
+            else:  # Windows/Linux
+                pyautogui.hotkey('ctrl', 'tab')
+            return "Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) pressed"
+        except Exception as e:
+            return f"Error pressing tab: {str(e)}"
+    
+    async def _arun(self) -> str:
+        """Execute the tool asynchronously"""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, self._run)
+        await asyncio.sleep(0.1)  # Wait after tabbing
+        return result
+
+
+class PasteTool(BaseTool):
+    """Tool to paste text using Command+V (Mac) or Ctrl+V (Windows/Linux)"""
+    name = "paste"
+    description = "Paste text from clipboard using Command+V (Mac) or Ctrl+V (Windows/Linux). WAIT for this to complete (0.2s delay) before next action."
+    
+    def _run(self) -> str:
+        """Execute the tool synchronously"""
+        try:
+            import platform
+            if platform.system() == 'Darwin':  # Mac
+                pyautogui.hotkey('command', 'v')
+            else:  # Windows/Linux
+                pyautogui.hotkey('ctrl', 'v')
+            return "Text pasted from clipboard"
+        except Exception as e:
+            return f"Error pasting: {str(e)}"
+    
+    async def _arun(self) -> str:
+        """Execute the tool asynchronously"""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, self._run)
+        await asyncio.sleep(0.2)  # Wait after pasting for content to be processed
+        return result
 
 
 def get_async_screen_control_tools() -> list[BaseTool]:
@@ -329,5 +425,9 @@ def get_async_screen_control_tools() -> list[BaseTool]:
         PressKeyTool(),
         ScrollTool(),
         FillFieldTool(),
+        MoveMouseToFixedTool(),
+        CopyTool(),
+        TabTool(),
+        PasteTool(),
     ]
 
