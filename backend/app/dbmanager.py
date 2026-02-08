@@ -263,14 +263,15 @@ class DatabaseManager:
     # Queue Operations
     async def get_oldest_queue_item(self) -> Optional[dict]:
         """
-        Get the oldest item from the queue collection.
+        Get the oldest item from the queue collection that is still pending.
 
         Returns:
-            Dictionary with queue item data including document ID, or None if queue is empty
+            Dictionary with queue item data including document ID, or None if no pending items
         """
         try:
             query = (
                 self.db.collection('queue')
+                .where('status', '==', 'pending')
                 .order_by('created_at', direction=Query.ASCENDING)
                 .limit(1)
             )
@@ -280,7 +281,7 @@ class DatabaseManager:
                 doc = docs[0]
                 data = doc.to_dict()
                 data['_doc_id'] = doc.id
-                print(f"[Queue] Found oldest item: {doc.id}")
+                print(f"[Queue] Found oldest pending item: {doc.id}")
                 return data
             return None
         except Exception as e:
@@ -340,7 +341,7 @@ class DatabaseManager:
             Number of pending queue items
         """
         try:
-            query = self.db.collection('queue').where('status', '==', None)
+            query = self.db.collection('queue').where('status', '==', 'pending')
             docs = list(query.stream())
             return len(docs)
         except Exception as e:

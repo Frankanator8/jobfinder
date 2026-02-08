@@ -9,6 +9,7 @@ load_dotenv()
 
 from app.routers import health, screen_control, fields, scraper
 from app.dbmanager import db
+from app.agents.async_form_filler_agent import AsyncFormFillerAgent
 
 # Try to import form_filler, but make it optional
 try:
@@ -76,13 +77,24 @@ async def process_queue_item(queue_item: dict) -> bool:
             await db.update_queue_item_status(doc_id, 'failed', 'Job application not found')
             return False
 
-        # TODO: Process the application (call form filler, etc.)
         print(f"[QueueProcessor] User data: {user_data}")
         print(f"[QueueProcessor] Job application: {job_application}")
 
-        # Mark as completed and delete from queue
+        # big_data = {**user_data.items(), **job_application.items()}
+        # agent = AsyncFormFillerAgent()
+        # result = await agent.fill_form_from_url(
+        #     url=job_application.get('job_url'),
+        #     data=big_data,
+        #     delay_between_fields=0.3,
+        #     headless=True
+        # )
+        # if result["success"]:
+        #     await db.update_queue_item_status(doc_id, 'completed')
+        # else:
+        #     await db.update_queue_item_status(doc_id, 'failed', result.get("error", "Unknown error"))
+
+        await asyncio.sleep(5)
         await db.update_queue_item_status(doc_id, 'completed')
-        await db.delete_queue_item(doc_id)
 
         print(f"[QueueProcessor] Successfully processed queue item: {doc_id}")
         return True
@@ -220,29 +232,4 @@ async def queue_status():
             "error": str(e)
         }
 
-
-@app.get("/apply")
-async def apply(application_id: str, applicant_id: str):
-    """
-    Manually trigger application processing (bypasses queue).
-    """
-    # Get user data
-    user_data = await db.get_user_data(applicant_id)
-    if not user_data:
-        return {"success": False, "error": "User data not found"}
-
-    # Get job application
-    job_application = await db.get_job_application(application_id)
-    if not job_application:
-        return {"success": False, "error": "Job application not found"}
-
-    # TODO: Process the application
-    return {
-        "success": True,
-        "message": "Application processing started",
-        "application_id": application_id,
-        "applicant_id": applicant_id,
-        "user_data": user_data,
-        "job_application": job_application.model_dump() if job_application else None
-    }
 
