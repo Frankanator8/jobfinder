@@ -64,10 +64,13 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
   void _setupQueueTracking() {
     final currentUser = AuthService().currentUser;
     if (currentUser != null) {
-      debugPrint('[Queue] Setting up queue tracking for user: ${currentUser.uid}');
+      debugPrint(
+        '[Queue] Setting up queue tracking for user: ${currentUser.uid}',
+      );
       // Use Firestore stream for real-time updates
-      _queueSubscription = QueueService.streamQueueItemsForUser(currentUser.uid)
-          .listen((items) {
+      _queueSubscription = QueueService.streamQueueItemsForUser(
+        currentUser.uid,
+      ).listen((items) {
         debugPrint('[Queue] Received ${items.length} queue items from stream');
         setState(() {
           for (final item in items) {
@@ -76,9 +79,13 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
 
             // Log status changes
             if (oldItem == null) {
-              debugPrint('[Queue] New item detected: ${item.docId} (status: ${item.status})');
+              debugPrint(
+                '[Queue] New item detected: ${item.docId} (status: ${item.status})',
+              );
             } else if (oldItem.status != item.status) {
-              debugPrint('[Queue] Status changed for ${item.docId}: ${oldItem.status} → ${item.status}');
+              debugPrint(
+                '[Queue] Status changed for ${item.docId}: ${oldItem.status} → ${item.status}',
+              );
             }
 
             // Check if status changed to terminal state
@@ -87,12 +94,19 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
               _showQueueStatusNotification(item);
               // Delete the entry from the queue after a short delay to allow UI to show final state
               _deleteQueueItemAfterDelay(item.docId);
+            } else if (oldItem == null && item.isTerminal) {
+              // Already terminal on first load (completed/failed while app was closed)
+              debugPrint(
+                '[Queue] Cleaning up stale terminal item: ${item.docId} (status: ${item.status})',
+              );
+              _deleteQueueItemAfterDelay(item.docId);
             }
           }
 
           // Remove items that are no longer in the queue
-          _trackedQueueItems.removeWhere((docId, item) =>
-              !items.any((i) => i.docId == docId));
+          _trackedQueueItems.removeWhere(
+            (docId, item) => !items.any((i) => i.docId == docId),
+          );
         });
       });
     } else {
@@ -102,7 +116,9 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
 
   void _deleteQueueItemAfterDelay(String docId) {
     final jobTitle = _jobTitlesForQueue[docId] ?? 'Unknown job';
-    debugPrint('[Queue] Scheduling deletion for $docId ($jobTitle) in 3 seconds...');
+    debugPrint(
+      '[Queue] Scheduling deletion for $docId ($jobTitle) in 3 seconds...',
+    );
     // Wait 3 seconds to show the final status, then delete
     Future.delayed(const Duration(seconds: 3), () async {
       try {
@@ -126,7 +142,9 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     if (item.isCompleted) {
       debugPrint('[Queue] ✓ Application COMPLETED: ${item.docId} ($jobTitle)');
     } else if (item.isFailed) {
-      debugPrint('[Queue] ✗ Application FAILED: ${item.docId} ($jobTitle) - Error: ${item.error}');
+      debugPrint(
+        '[Queue] ✗ Application FAILED: ${item.docId} ($jobTitle) - Error: ${item.error}',
+      );
     }
   }
 
@@ -155,13 +173,17 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     });
 
     try {
-      debugPrint('[_loadJobs] Filters → category: $_activeCategory, location: $_activeLocation, hoursOld: $_activeHoursOld');
+      debugPrint(
+        '[_loadJobs] Filters → category: $_activeCategory, location: $_activeLocation, hoursOld: $_activeHoursOld',
+      );
       final jobs = await JobService.fetchAllJobs(
         category: _activeCategory,
         location: _activeLocation,
         hoursOld: _activeHoursOld,
       );
-      debugPrint('[_loadJobs] Fetched ${jobs.length} jobs from Firestore (after filters)');
+      debugPrint(
+        '[_loadJobs] Fetched ${jobs.length} jobs from Firestore (after filters)',
+      );
 
       // Separate into previously saved jobs and unseen jobs
       final savedIds = widget.savedJobIds.toSet();
@@ -180,7 +202,9 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
       // Mark saved job IDs as seen so they don't reappear
       _seenJobIds.addAll(savedIds);
 
-      debugPrint('[_loadJobs] ${savedJobs.length} previously saved, ${unseenJobs.length} unseen');
+      debugPrint(
+        '[_loadJobs] ${savedJobs.length} previously saved, ${unseenJobs.length} unseen',
+      );
       setState(() {
         _likedJobs = savedJobs;
         _jobs = unseenJobs;
@@ -208,12 +232,14 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
       // Build scrape params from user preferences
       final profile = _userProfile;
       final category = _activeCategory ?? 'software_engineering';
-      final location = (profile != null && profile.searchLocation.isNotEmpty)
-          ? profile.searchLocation
-          : 'New York, NY';
-      final sites = (profile != null && profile.searchSites.isNotEmpty)
-          ? profile.searchSites.join(',')
-          : 'indeed,linkedin,zip_recruiter,google';
+      final location =
+          (profile != null && profile.searchLocation.isNotEmpty)
+              ? profile.searchLocation
+              : 'New York, NY';
+      final sites =
+          (profile != null && profile.searchSites.isNotEmpty)
+              ? profile.searchSites.join(',')
+              : 'indeed,linkedin,zip_recruiter,google';
       final hoursOld = profile?.hoursOld ?? 72;
 
       // Ask the backend to scrape 20 new jobs
@@ -248,15 +274,20 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           final updated = result['jobs_updated'] ?? 0;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Found $saved new jobs${updated > 0 ? ', updated $updated' : ''}'),
-              backgroundColor: saved > 0 ? Colors.green.shade600 : Colors.orange.shade600,
+              content: Text(
+                'Found $saved new jobs${updated > 0 ? ', updated $updated' : ''}',
+              ),
+              backgroundColor:
+                  saved > 0 ? Colors.green.shade600 : Colors.orange.shade600,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               margin: const EdgeInsets.all(16),
               duration: const Duration(seconds: 3),
             ),
           );
-        }// else {
+        } // else {
         //   ScaffoldMessenger.of(context).showSnackBar(
         //     SnackBar(
         //       content: const Text('Scrape failed — showing cached results. Is the backend running?'),
@@ -279,7 +310,9 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
             content: Text('Scrape error: $e'),
             backgroundColor: Colors.red.shade600,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             margin: const EdgeInsets.all(16),
           ),
         );
@@ -334,7 +367,9 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           );
           // Track the job title for this queue item
           _jobTitlesForQueue[docId] = '${job.title} at ${job.company}';
-          debugPrint('[Queue] Added job ${job.id} to queue for user ${currentUser.uid}, docId: $docId');
+          debugPrint(
+            '[Queue] Added job ${job.id} to queue for user ${currentUser.uid}, docId: $docId',
+          );
         } catch (e) {
           debugPrint('[Queue] Failed to add to queue: $e');
         }
@@ -374,7 +409,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                         initialProfile: _userProfile,
                         onSave: (profile) async {
                           final oldCategory = _userProfile?.category;
-                          final oldSearchLocation = _userProfile?.searchLocation;
+                          final oldSearchLocation =
+                              _userProfile?.searchLocation;
                           final oldSites = _userProfile?.searchSites.join(',');
                           final oldHoursOld = _userProfile?.hoursOld;
 
@@ -540,24 +576,32 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                                                   BorderRadius.circular(10),
                                             ),
                                             clipBehavior: Clip.antiAlias,
-                                            child: job.logo != null && job.logo!.isNotEmpty
-                                                ? Image.network(
-                                                    job.logo!,
-                                                    width: 40,
-                                                    height: 40,
-                                                    fit: BoxFit.cover,
-                                                    errorBuilder: (context, error, stackTrace) =>
-                                                        const Icon(
-                                                          Icons.work_outline,
-                                                          color: Color(0xFF6366F1),
-                                                          size: 20,
-                                                        ),
-                                                  )
-                                                : const Icon(
-                                                    Icons.work_outline,
-                                                    color: Color(0xFF6366F1),
-                                                    size: 20,
-                                                  ),
+                                            child:
+                                                job.logo != null &&
+                                                        job.logo!.isNotEmpty
+                                                    ? Image.network(
+                                                      job.logo!,
+                                                      width: 40,
+                                                      height: 40,
+                                                      fit: BoxFit.cover,
+                                                      errorBuilder:
+                                                          (
+                                                            context,
+                                                            error,
+                                                            stackTrace,
+                                                          ) => const Icon(
+                                                            Icons.work_outline,
+                                                            color: Color(
+                                                              0xFF6366F1,
+                                                            ),
+                                                            size: 20,
+                                                          ),
+                                                    )
+                                                    : const Icon(
+                                                      Icons.work_outline,
+                                                      color: Color(0xFF6366F1),
+                                                      size: 20,
+                                                    ),
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
@@ -594,24 +638,39 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                                                 if (job.type.isNotEmpty) ...[
                                                   const SizedBox(height: 4),
                                                   Container(
-                                                    padding: const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 2,
-                                                    ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 2,
+                                                        ),
                                                     decoration: BoxDecoration(
-                                                      color: isDark
-                                                          ? Colors.grey.shade700
-                                                          : Colors.grey.shade200,
-                                                      borderRadius: BorderRadius.circular(8),
+                                                      color:
+                                                          isDark
+                                                              ? Colors
+                                                                  .grey
+                                                                  .shade700
+                                                              : Colors
+                                                                  .grey
+                                                                  .shade200,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
                                                     ),
                                                     child: Text(
                                                       job.type,
                                                       style: TextStyle(
                                                         fontSize: 11,
-                                                        fontWeight: FontWeight.w500,
-                                                        color: isDark
-                                                            ? Colors.grey.shade300
-                                                            : Colors.grey.shade700,
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                        color:
+                                                            isDark
+                                                                ? Colors
+                                                                    .grey
+                                                                    .shade300
+                                                                : Colors
+                                                                    .grey
+                                                                    .shade700,
                                                       ),
                                                     ),
                                                   ),
@@ -624,9 +683,10 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                                               _formatDate(job.datePosted!),
                                               style: TextStyle(
                                                 fontSize: 11,
-                                                color: isDark
-                                                    ? Colors.grey.shade500
-                                                    : Colors.grey.shade500,
+                                                color:
+                                                    isDark
+                                                        ? Colors.grey.shade500
+                                                        : Colors.grey.shade500,
                                               ),
                                             ),
                                         ],
@@ -678,41 +738,41 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _errorMessage != null
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: Colors.red.shade400,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _errorMessage!,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: _loadJobs,
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
-                    )
-                  : Column(
-                      children: [
-                        // Card stack area
-                        Expanded(
-                          child: SwipeableCardStack(
-                            key: _cardStackKey,
-                            jobs: _jobs,
-                            onSwipe: _onSwipe,
-                          ),
-                        ),
-                      ],
+              ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.red.shade400,
                     ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _loadJobs,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              )
+              : Column(
+                children: [
+                  // Card stack area
+                  Expanded(
+                    child: SwipeableCardStack(
+                      key: _cardStackKey,
+                      jobs: _jobs,
+                      onSwipe: _onSwipe,
+                    ),
+                  ),
+                ],
+              ),
           // Queue status notification overlay
           _buildQueueStatusOverlay(isDark),
         ],
@@ -734,7 +794,10 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children: activeItems.map((item) => _buildQueueItemCard(item, isDark)).toList(),
+        children:
+            activeItems
+                .map((item) => _buildQueueItemCard(item, isDark))
+                .toList(),
       ),
     );
   }

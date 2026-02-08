@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 /// Represents a queue item with its status
 class QueueItem {
@@ -58,6 +59,17 @@ class QueueService {
       'status': 'pending',
       'created_at': FieldValue.serverTimestamp(),
     });
+
+    // Auto-delete the queue item after 10 seconds
+    Future.delayed(const Duration(seconds: 6), () async {
+      try {
+        await _firestore.collection('queue').doc(docRef.id).delete();
+        debugPrint('[Queue] Auto-deleted queue item ${docRef.id} after 10s');
+      } catch (e) {
+        debugPrint('[Queue] Failed to auto-delete ${docRef.id}: $e');
+      }
+    });
+
     return docRef.id;
   }
 
@@ -71,15 +83,19 @@ class QueueService {
   }
 
   /// Get all queue items for a user
-  static Future<List<QueueItem>> getQueueItemsForUser(String applicantId) async {
-    final snapshot = await _firestore
-        .collection('queue')
-        .where('applicant_id', isEqualTo: applicantId)
-        .get();
+  static Future<List<QueueItem>> getQueueItemsForUser(
+    String applicantId,
+  ) async {
+    final snapshot =
+        await _firestore
+            .collection('queue')
+            .where('applicant_id', isEqualTo: applicantId)
+            .get();
 
-    final items = snapshot.docs
-        .map((doc) => QueueItem.fromFirestore(doc.id, doc.data()))
-        .toList();
+    final items =
+        snapshot.docs
+            .map((doc) => QueueItem.fromFirestore(doc.id, doc.data()))
+            .toList();
 
     // Sort by created_at descending (newest first) in Dart to avoid needing a composite index
     items.sort((a, b) {
@@ -99,9 +115,10 @@ class QueueService {
         .where('applicant_id', isEqualTo: applicantId)
         .snapshots()
         .map((snapshot) {
-          final items = snapshot.docs
-              .map((doc) => QueueItem.fromFirestore(doc.id, doc.data()))
-              .toList();
+          final items =
+              snapshot.docs
+                  .map((doc) => QueueItem.fromFirestore(doc.id, doc.data()))
+                  .toList();
 
           // Sort by created_at descending (newest first) in Dart to avoid needing a composite index
           items.sort((a, b) {
@@ -123,11 +140,12 @@ class QueueService {
     required String applicationId,
     required String applicantId,
   }) async {
-    final snapshot = await _firestore
-        .collection('queue')
-        .where('application_id', isEqualTo: applicationId)
-        .where('applicant_id', isEqualTo: applicantId)
-        .get();
+    final snapshot =
+        await _firestore
+            .collection('queue')
+            .where('application_id', isEqualTo: applicationId)
+            .where('applicant_id', isEqualTo: applicantId)
+            .get();
 
     for (final doc in snapshot.docs) {
       await doc.reference.delete();
@@ -144,12 +162,13 @@ class QueueService {
     required String applicationId,
     required String applicantId,
   }) async {
-    final snapshot = await _firestore
-        .collection('queue')
-        .where('application_id', isEqualTo: applicationId)
-        .where('applicant_id', isEqualTo: applicantId)
-        .limit(1)
-        .get();
+    final snapshot =
+        await _firestore
+            .collection('queue')
+            .where('application_id', isEqualTo: applicationId)
+            .where('applicant_id', isEqualTo: applicantId)
+            .limit(1)
+            .get();
 
     return snapshot.docs.isNotEmpty;
   }
