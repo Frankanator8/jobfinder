@@ -5,6 +5,8 @@ Controls mouse and keyboard directly (no HTTP API, no screenshots).
 import asyncio
 import os
 import logging
+import subprocess
+import platform as platform_module
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -1002,6 +1004,9 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     import pyautogui
                     import platform
                     
+                    # Store the URL from clipboard (input stream) - this is the source of truth
+                    pasted_url_from_input_stream = None
+                    
                     try:
                         # Step 1: Move mouse to hardcoded position (410, 105) - this is where the URL is in browser
                         logger.info("Step 1: Moving mouse to fixed position (410, 105)...")
@@ -1023,6 +1028,26 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                             pyautogui.hotkey('ctrl', 'c')
                         await asyncio.sleep(0.2)  # Wait for copy to complete
                         logger.info("✓ URL copied to clipboard")
+                        
+                        # CRITICAL: Read the URL from clipboard (input stream) - this is the source of truth
+                        logger.info("Reading URL from clipboard (input stream)...")
+                        try:
+                            if platform.system() == 'Darwin':  # Mac
+                                result = subprocess.run(['pbpaste'], capture_output=True, text=True, timeout=1)
+                                pasted_url_from_input_stream = result.stdout.strip()
+                            elif platform.system() == 'Windows':  # Windows
+                                result = subprocess.run(['powershell', '-command', 'Get-Clipboard'], capture_output=True, text=True, timeout=1)
+                                pasted_url_from_input_stream = result.stdout.strip()
+                            else:  # Linux
+                                result = subprocess.run(['xclip', '-selection', 'clipboard', '-o'], capture_output=True, text=True, timeout=1)
+                                pasted_url_from_input_stream = result.stdout.strip()
+                            
+                            if pasted_url_from_input_stream:
+                                logger.info(f"✓ URL read from clipboard (input stream): {pasted_url_from_input_stream}")
+                            else:
+                                logger.warning("⚠ Clipboard appears empty, will use fallback")
+                        except Exception as clip_error:
+                            logger.warning(f"⚠ Could not read clipboard: {clip_error}, will use fallback")
                         
                         # Step 4: Tab once to move to the next available input field (Command+Tab on Mac, Ctrl+Tab on Windows/Linux)
                         logger.info("Step 4: Pressing Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) to move to next input field...")
@@ -1069,39 +1094,60 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                             logger.warning(f"Page load wait timeout: {e}, proceeding anyway")
                             await asyncio.sleep(0.5)
                         
-                        # Get the new URL after paste/navigation
-                        final_url = selector.page.url
-                        try:
-                            final_title = await selector.page.title()
-                        except Exception:
-                            final_title = previous_title
+                        # CRITICAL: Use the URL from clipboard (input stream) - DO NOT fetch from browser
+                        # COMMENTED OUT: All browser URL fetching - we use the pasted URL from input stream instead
+                        # final_url = selector.page.url  # COMMENTED OUT - not using browser URL
+                        # try:
+                        #     final_title = await selector.page.title()  # COMMENTED OUT - not using browser title
+                        # except Exception:
+                        #     final_title = previous_title
+                        # final_hash = final_url.split('#')[1] if '#' in final_url else None  # COMMENTED OUT
+                        
+                        # Use the URL from clipboard (input stream) - this is the source of truth
+                        if pasted_url_from_input_stream:
+                            final_url = pasted_url_from_input_stream
+                            logger.info(f"\n{'='*60}")
+                            logger.info(f"USING URL FROM INPUT STREAM (CLIPBOARD)")
+                            logger.info(f"URL from input stream: {final_url}")
+                            logger.info(f"{'='*60}")
+                        else:
+                            # Fallback only if clipboard read failed
+                            logger.warning("⚠ Clipboard read failed, using browser URL as fallback")
+                            final_url = selector.page.url
+                        
+                        # Extract hash if present
                         final_hash = final_url.split('#')[1] if '#' in final_url else None
+                        
+                        # Use previous title (we don't fetch from browser)
+                        final_title = previous_title
                         
                         logger.info(f"\n{'='*60}")
                         logger.info(f"URL PROCESSING COMPLETE")
-                        logger.info(f"Final URL after paste: {final_url}")
-                        logger.info(f"Final title: {final_title}")
+                        logger.info(f"Final URL from input stream: {final_url}")
                         logger.info(f"Final hash: {final_hash or 'None'}")
                         logger.info(f"{'='*60}")
-                        print(f"URL processed: {final_url} (Title: {final_title})")
+                        print(f"URL processed from input stream: {final_url}")
                         
                     except Exception as e:
                         logger.error(f"Error in URL copy/paste workflow: {e}")
-                        logger.info("Falling back to standard navigation detection...")
-                        # Fallback: just get current URL
-                        final_url = selector.page.url
-                        try:
-                            final_title = await selector.page.title()
-                        except Exception:
-                            final_title = previous_title
+                        logger.info("Falling back to clipboard URL...")
+                        # Fallback: try to read from clipboard if we have it
+                        if pasted_url_from_input_stream:
+                            final_url = pasted_url_from_input_stream
+                            logger.info(f"Using clipboard URL as fallback: {final_url}")
+                        else:
+                            # Last resort: use browser URL (but this should not happen)
+                            logger.warning("⚠ No clipboard URL available, using browser URL as last resort")
+                            final_url = selector.page.url
+                        final_title = previous_title
                         final_hash = final_url.split('#')[1] if '#' in final_url else None
                     
-                    # CRITICAL: Immediately stop current agent execution and restart with fresh divselection scan
+                    # CRITICAL: Stop current MCP execution and immediately restart with fresh divselection scan
                     logger.info(f"\n{'='*60}")
-                    logger.info(f"STOPPING CURRENT AGENT EXECUTION")
+                    logger.info(f"STOPPING CURRENT MCP AGENT EXECUTION")
                     logger.info(f"IMMEDIATELY RE-RUNNING divselection.find_fields() ON NEW PAGE")
                     logger.info(f"URL to analyze: {final_url}")
-                    logger.info(f"Restarting agent with fresh fields from new page")
+                    logger.info(f"Restarting MCP agent with fresh fields from new page")
                     logger.info(f"{'='*60}")
                     
                     # Update tracking variables for next iteration comparison
@@ -1109,20 +1155,89 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     previous_title = final_title
                     previous_hash = final_hash
                     
+                    # CRITICAL: Navigate to the URL from input stream (clipboard) - DO NOT use browser URL
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"NAVIGATING TO URL FROM INPUT STREAM (CLIPBOARD)")
+                    logger.info(f"URL from input stream: {final_url}")
+                    logger.info(f"{'='*60}")
+                    
+                    # Navigate to the URL from clipboard (input stream)
+                    try:
+                        await selector.navigate(final_url, wait_for_load=True)
+                        logger.info(f"✓ Navigated to URL from input stream: {final_url}")
+                    except Exception as nav_error:
+                        logger.error(f"Error navigating to URL from input stream: {nav_error}")
+                        logger.warning("Browser may already be on the correct page from input stream processing")
+                    
                     # Immediately rescan with divselection to get fresh fields
                     logger.info("Immediately rescanning page with divselection.find_fields()...")
+                    logger.info(f"Scanning URL from input stream: {final_url}")
                     try:
                         await selector.page.wait_for_load_state("domcontentloaded", timeout=3000)
+                        await asyncio.sleep(0.5)  # Brief wait for page to stabilize
                     except Exception:
-                        pass
+                        await asyncio.sleep(0.5)
                     
-                    # Get fresh fields immediately after paste
+                    # Get fresh fields immediately after paste - using URL from input stream
                     fresh_fields = await selector.find_fields()
                     logger.info(f"✓ Fresh scan complete - found {len(fresh_fields)} fields on new page")
+                    logger.info(f"✓ Scanned using URL from input stream: {final_url}")
                     
-                    # Break out of current step and continue to next iteration
-                    # This will restart the agent with the fresh fields from the new page
-                    logger.info("Breaking out of current step to restart agent with fresh fields...")
+                    # Update current URL to the new URL
+                    current_url = final_url
+                    current_title = final_title
+                    current_hash = final_hash
+                    
+                    # Immediately restart MCP agent execution with fresh fields
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"RESTARTING MCP AGENT EXECUTION WITH FRESH FIELDS")
+                    logger.info(f"New URL: {current_url}")
+                    logger.info(f"New fields count: {len(fresh_fields)}")
+                    logger.info(f"{'='*60}")
+                    
+                    # Separate input fields from buttons
+                    fresh_input_fields = [f for f in fresh_fields if f.field_type.value not in ["submit", "button"]]
+                    fresh_next_buttons = [f for f in fresh_fields if hasattr(f, 'is_next_button') and f.is_next_button]
+                    fresh_final_submit_buttons = [f for f in fresh_fields if hasattr(f, 'is_final_submit') and f.is_final_submit]
+                    
+                    if fresh_input_fields:
+                        logger.info(f"Restarting agent to fill {len(fresh_input_fields)} input fields on new page...")
+                        
+                        # Get current page title for agent context
+                        try:
+                            fresh_page_title = await selector.page.title()
+                        except Exception:
+                            fresh_page_title = current_title
+                        
+                        # RESTART MCP agent execution with fresh fields
+                        fresh_result = await self.fill_form_fields(
+                            fresh_fields, 
+                            data, 
+                            delay_between_fields,
+                            current_url=current_url,
+                            current_title=fresh_page_title,
+                            step_number=step + 1  # Increment step number for new page
+                        )
+                        
+                        # Accumulate results
+                        all_filled_fields.extend(fresh_result.get("filled_fields", []))
+                        all_failed_fields.extend(fresh_result.get("failed_fields", []))
+                        all_errors.extend(fresh_result.get("errors", []))
+                        
+                        logger.info(f"\n{'='*60}")
+                        logger.info(f"RESTARTED MCP AGENT COMPLETED FOR NEW PAGE")
+                        logger.info(f"  Filled: {len(fresh_result.get('filled_fields', []))} fields")
+                        logger.info(f"  Failed: {len(fresh_result.get('failed_fields', []))} fields")
+                        logger.info(f"{'='*60}")
+                    else:
+                        logger.warning("No input fields found on new page after rescan")
+                    
+                    # Update next_buttons and final_submit_buttons for next check
+                    next_buttons = fresh_next_buttons
+                    final_submit_buttons = fresh_final_submit_buttons
+                    
+                    # Continue to check for next buttons or completion
+                    # (The loop will naturally continue and check these updated buttons)
                     continue
                 
                 # If there's a final submit button, the agent should have clicked it
