@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/job.dart';
+import '../models/user_profile.dart';
 
 class JobCard extends StatelessWidget {
   final Job job;
@@ -250,6 +251,12 @@ class JobCard extends StatelessWidget {
                         color: const Color(0xFF34A853),
                         isHighlighted: true,
                       ),
+                      if (job.category != null && job.category!.isNotEmpty)
+                        _InfoChip(
+                          icon: Icons.category_outlined,
+                          text: UserProfile.categoryLabel(job.category!),
+                          color: const Color(0xFF4285F4),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 20),

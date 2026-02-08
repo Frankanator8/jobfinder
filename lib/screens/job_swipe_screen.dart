@@ -29,8 +29,10 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
   List<Job> _passedJobs = [];
   UserProfile? _userProfile;
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   String? _errorMessage;
-  final GlobalKey<SwipeableCardStackState> _cardStackKey =
+  final Set<String> _seenJobIds = {};
+  GlobalKey<SwipeableCardStackState> _cardStackKey =
       GlobalKey<SwipeableCardStackState>();
 
   @override
@@ -40,6 +42,24 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     _loadJobs();
   }
 
+  /// The currently active category filter from user preferences.
+  String? get _activeCategory {
+    final cat = _userProfile?.category;
+    return (cat != null && cat.isNotEmpty) ? cat : null;
+  }
+
+  /// The currently active location filter from user preferences.
+  String? get _activeLocation {
+    final loc = _userProfile?.searchLocation;
+    return (loc != null && loc.isNotEmpty) ? loc : null;
+  }
+
+  /// The currently active max-age filter (hours) from user preferences.
+  int? get _activeHoursOld {
+    final h = _userProfile?.hoursOld;
+    return (h != null && h > 0) ? h : null;
+  }
+
   void _loadJobs() async {
     setState(() {
       _isLoading = true;
@@ -47,16 +67,118 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     });
 
     try {
-      final jobs = await JobService.fetchAllJobs();
+      debugPrint('[_loadJobs] Filters → category: $_activeCategory, location: $_activeLocation, hoursOld: $_activeHoursOld');
+      final jobs = await JobService.fetchAllJobs(
+        category: _activeCategory,
+        location: _activeLocation,
+        hoursOld: _activeHoursOld,
+      );
+      debugPrint('[_loadJobs] Fetched ${jobs.length} jobs from Firestore (after filters)');
+      // Filter out already-seen jobs
+      final newJobs = jobs.where((j) => !_seenJobIds.contains(j.id)).toList();
+      debugPrint('[_loadJobs] After dedup: ${newJobs.length} jobs (${_seenJobIds.length} seen)');
       setState(() {
-        _jobs = jobs;
+        _jobs = newJobs;
         _isLoading = false;
+        // Force card stack to rebuild with fresh data
+        _cardStackKey = GlobalKey<SwipeableCardStackState>();
       });
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to load jobs: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  /// Manually triggered by the user to scrape new jobs from the backend.
+  Future<void> _scrapeMoreJobs() async {
+    if (_isLoadingMore) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      // Build scrape params from user preferences
+      final profile = _userProfile;
+      final category = _activeCategory ?? 'software_engineering';
+      final location = (profile != null && profile.searchLocation.isNotEmpty)
+          ? profile.searchLocation
+          : 'New York, NY';
+      final sites = (profile != null && profile.searchSites.isNotEmpty)
+          ? profile.searchSites.join(',')
+          : 'indeed,linkedin,zip_recruiter,google';
+      final hoursOld = profile?.hoursOld ?? 72;
+
+      // Ask the backend to scrape 20 new jobs
+      final result = await JobService.scrapeJobs(
+        category: category,
+        location: location,
+        sites: sites,
+        hoursOld: hoursOld,
+        resultsWanted: 20,
+      );
+
+      // Always reload from Firestore after scrape attempt —
+      // even a "failed" scrape may have stored partial results.
+      final jobs = await JobService.fetchAllJobsFromServer(
+        category: _activeCategory,
+        location: _activeLocation,
+        hoursOld: _activeHoursOld,
+      );
+      final newJobs = jobs.where((j) => !_seenJobIds.contains(j.id)).toList();
+      debugPrint('[Scrape] Reload complete: ${newJobs.length} unseen jobs');
+
+      setState(() {
+        _jobs = newJobs;
+        _isLoadingMore = false;
+        // Force the card stack to rebuild with the fresh job list
+        _cardStackKey = GlobalKey<SwipeableCardStackState>();
+      });
+
+      if (mounted) {
+        if (result != null) {
+          final saved = result['jobs_saved'] ?? 0;
+          final updated = result['jobs_updated'] ?? 0;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Found $saved new jobs${updated > 0 ? ', updated $updated' : ''}'),
+              backgroundColor: saved > 0 ? Colors.green.shade600 : Colors.orange.shade600,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }// else {
+        //   ScaffoldMessenger.of(context).showSnackBar(
+        //     SnackBar(
+        //       content: const Text('Scrape failed — showing cached results. Is the backend running?'),
+        //       backgroundColor: Colors.red.shade600,
+        //       behavior: SnackBarBehavior.floating,
+        //       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        //       margin: const EdgeInsets.all(16),
+        //     ),
+        //   );
+        // }
+      }
+    } catch (e) {
+      debugPrint('[JobSwipeScreen] Scrape error: $e');
+      setState(() {
+        _isLoadingMore = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Scrape error: $e'),
+            backgroundColor: Colors.red.shade600,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
     }
   }
 
@@ -84,6 +206,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
 
   void _onSwipe(Job job, bool isLiked) async {
     setState(() {
+      // Track this job as seen so we don't show it again
+      _seenJobIds.add(job.id);
       // Remove the swiped job from the list
       _jobs.removeWhere((j) => j.id == job.id);
 
@@ -170,12 +294,30 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                       (context) => UserInfoScreen(
                         initialProfile: _userProfile,
                         onSave: (profile) async {
+                          final oldCategory = _userProfile?.category;
+                          final oldSearchLocation = _userProfile?.searchLocation;
+                          final oldSites = _userProfile?.searchSites.join(',');
+                          final oldHoursOld = _userProfile?.hoursOld;
+
                           setState(() {
                             _userProfile = profile;
                           });
                           // Save to Firestore via the callback
                           if (widget.onProfileUpdated != null) {
                             await widget.onProfileUpdated!(profile);
+                          }
+
+                          // Check if search preferences changed — if so, reload jobs
+                          final prefsChanged =
+                              profile.category != oldCategory ||
+                              profile.searchLocation != oldSearchLocation ||
+                              profile.searchSites.join(',') != oldSites ||
+                              profile.hoursOld != oldHoursOld;
+
+                          if (prefsChanged) {
+                            // Clear seen jobs so we get a fresh set for new preferences
+                            _seenJobIds.clear();
+                            _loadJobs();
                           }
                         },
                       ),
@@ -486,6 +628,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                         key: _cardStackKey,
                         jobs: _jobs,
                         onSwipe: _onSwipe,
+                        onScrapeMore: _scrapeMoreJobs,
+                        isScraping: _isLoadingMore,
                       ),
                     ),
                   ],

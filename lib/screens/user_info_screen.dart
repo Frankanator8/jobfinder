@@ -31,10 +31,14 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
   late TextEditingController _experienceController;
   late TextEditingController _bioController;
   late TextEditingController _skillController;
+  late TextEditingController _searchLocationController;
+  late TextEditingController _hoursOldController;
 
   String _preferredJobType = 'Full-time';
   String _salaryRange = '';
   List<String> _skills = [];
+  List<String> _searchSites = [];
+  String _category = '';
 
   final List<String> _jobTypes = [
     'Full-time',
@@ -65,12 +69,20 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     _experienceController = TextEditingController(text: profile.experience);
     _bioController = TextEditingController(text: profile.bio);
     _skillController = TextEditingController();
+    _searchLocationController = TextEditingController(text: profile.searchLocation);
+    _hoursOldController = TextEditingController(
+      text: profile.hoursOld > 0 ? profile.hoursOld.toString() : '72',
+    );
     _preferredJobType =
         profile.preferredJobType.isNotEmpty
             ? profile.preferredJobType
             : 'Full-time';
     _salaryRange = profile.salaryRange;
     _skills = List.from(profile.skills);
+    _searchSites = List.from(profile.searchSites.isNotEmpty
+        ? profile.searchSites
+        : UserProfile.availableSites);
+    _category = profile.category;
   }
 
   @override
@@ -83,6 +95,8 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     _experienceController.dispose();
     _bioController.dispose();
     _skillController.dispose();
+    _searchLocationController.dispose();
+    _hoursOldController.dispose();
     super.dispose();
   }
 
@@ -115,6 +129,10 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
         bio: _bioController.text.trim(),
         preferredJobType: _preferredJobType,
         salaryRange: _salaryRange,
+        searchSites: _searchSites,
+        searchLocation: _searchLocationController.text.trim(),
+        hoursOld: int.tryParse(_hoursOldController.text.trim()) ?? 72,
+        category: _category,
       );
 
       await widget.onSave(profile);
@@ -265,6 +283,39 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
                 });
               },
             ),
+            const SizedBox(height: 32),
+
+            // Job Search Preferences Section
+            _buildSectionHeader('Job Search Preferences'),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _searchLocationController,
+              label: 'Search Location',
+              icon: Icons.map_outlined,
+              hintText: 'e.g., New York, NY',
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _hoursOldController,
+              label: 'Max Posting Age (hours)',
+              icon: Icons.schedule,
+              keyboardType: TextInputType.number,
+              hintText: 'e.g., 72',
+            ),
+            const SizedBox(height: 16),
+            _buildDropdown(
+              label: 'Job Category',
+              value: _category.isEmpty ? null : _category,
+              items: UserProfile.availableCategories,
+              itemLabelBuilder: UserProfile.categoryLabel,
+              onChanged: (value) {
+                setState(() {
+                  _category = value ?? '';
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildSitePicker(),
             const SizedBox(height: 32),
 
             // Skills Section
@@ -423,6 +474,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     required String? value,
     required List<String> items,
     required void Function(String?) onChanged,
+    String Function(String)? itemLabelBuilder,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -458,10 +510,11 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
       ),
       items:
           items.map((item) {
+            final displayText = itemLabelBuilder != null ? itemLabelBuilder(item) : item;
             return DropdownMenuItem<String>(
               value: item,
               child: Text(
-                item,
+                displayText,
                 style: TextStyle(
                   color: isDark ? Colors.white : const Color(0xFF202124),
                 ),
@@ -470,6 +523,61 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
           }).toList(),
       onChanged: onChanged,
       style: TextStyle(color: isDark ? Colors.white : const Color(0xFF202124)),
+    );
+  }
+
+  Widget _buildSitePicker() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Job Sites',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: UserProfile.availableSites.map((site) {
+            final selected = _searchSites.contains(site);
+            final displayName = site.replaceAll('_', ' ').split(' ').map((w) {
+              if (w.isEmpty) return w;
+              return w[0].toUpperCase() + w.substring(1);
+            }).join(' ');
+
+            return FilterChip(
+              label: Text(displayName),
+              selected: selected,
+              onSelected: (value) {
+                setState(() {
+                  if (value) {
+                    _searchSites.add(site);
+                  } else {
+                    _searchSites.remove(site);
+                  }
+                });
+              },
+              selectedColor: const Color(0xFF4285F4).withOpacity(0.2),
+              checkmarkColor: const Color(0xFF4285F4),
+              backgroundColor: isDark
+                  ? Colors.grey.shade800
+                  : Colors.grey.shade100,
+              labelStyle: TextStyle(
+                color: selected
+                    ? const Color(0xFF4285F4)
+                    : (isDark ? Colors.white : const Color(0xFF202124)),
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 }
