@@ -60,6 +60,15 @@ class ScrollInput(BaseModel):
     y: Optional[int] = Field(None, description="Y coordinate to scroll at (optional)")
 
 
+class SelectDropdownOptionInput(BaseModel):
+    """Input for selecting a dropdown option"""
+    x: int = Field(..., description="X coordinate of dropdown field center")
+    y: int = Field(..., description="Y coordinate of dropdown field center")
+    options: list = Field(..., description="List of dropdown options from divselection (each has 'text' and 'value' keys)")
+    target_value: str = Field(..., description="The user data value to match against options")
+    dropdown_height: int = Field(default=30, description="Height of the dropdown field in pixels (used to calculate option spacing)")
+
+
 class GetScreenInfoInput(BaseModel):
     """Input for getting screen info (no parameters needed)"""
     class Config:
@@ -415,6 +424,90 @@ class PasteTool(BaseTool):
         return result
 
 
+class SelectDropdownOptionTool(BaseTool):
+    """Tool to select a dropdown option by moving mouse down by equal increments"""
+    name = "select_dropdown_option"
+    description = "Select a dropdown option by matching user data to options and moving mouse down by equal increments. Steps: 1) Click dropdown to open, 2) Match target_value to best option, 3) Calculate option index, 4) Move mouse down by (index * increment), 5) Click to select. Input: x, y (dropdown center), options (list from divselection), target_value (user data to match), dropdown_height (field height)."
+    args_schema = SelectDropdownOptionInput
+    
+    def _run(self, x: int, y: int, options: list, target_value: str, dropdown_height: int = 30) -> str:
+        """Execute the tool synchronously"""
+        try:
+            import difflib
+            
+            # Step 1: Match target_value to best option
+            best_match_index = 0
+            best_match_score = 0.0
+            best_match_text = ""
+            
+            # Normalize target value for matching
+            target_normalized = target_value.lower().strip()
+            
+            for i, option in enumerate(options):
+                if not isinstance(option, dict):
+                    continue
+                
+                # Get option text and value
+                option_text = option.get('text', '').lower().strip()
+                option_value = option.get('value', '').lower().strip()
+                
+                # Skip disabled options
+                if option.get('disabled', False):
+                    continue
+                
+                # Calculate similarity scores
+                text_score = difflib.SequenceMatcher(None, target_normalized, option_text).ratio()
+                value_score = difflib.SequenceMatcher(None, target_normalized, option_value).ratio()
+                
+                # Use the higher score
+                score = max(text_score, value_score)
+                
+                # Also check for exact matches (case-insensitive)
+                if target_normalized == option_text or target_normalized == option_value:
+                    score = 1.0
+                
+                if score > best_match_score:
+                    best_match_score = score
+                    best_match_index = i
+                    best_match_text = option.get('text', option.get('value', ''))
+            
+            if best_match_score < 0.3:
+                return f"Error: Could not find good match for '{target_value}'. Best match was '{best_match_text}' with score {best_match_score:.2f}"
+            
+            # Step 2: Click dropdown to open it
+            pyautogui.click(x, y, button='left', clicks=1)
+            import time
+            time.sleep(0.3)  # Wait for dropdown to open
+            
+            # Step 3: Calculate increment per option (equal spacing)
+            # Use a fixed increment of 25-30 pixels per option
+            increment_per_option = 28  # Pixels to move down per option
+            
+            # Step 4: Move mouse down by (index * increment)
+            # Start from the bottom of the dropdown field (y + dropdown_height/2)
+            start_y = y + (dropdown_height // 2)
+            target_y = start_y + (best_match_index * increment_per_option)
+            
+            # Move mouse to the target option position
+            pyautogui.moveTo(x, target_y, duration=0.2)
+            time.sleep(0.1)  # Small delay after moving
+            
+            # Step 5: Click to select the option
+            pyautogui.click(x, target_y, button='left', clicks=1)
+            time.sleep(0.2)  # Wait for selection to register
+            
+            return f"Successfully selected dropdown option {best_match_index + 1} (index {best_match_index}): '{best_match_text}' for target '{target_value}' (match score: {best_match_score:.2f})"
+        except Exception as e:
+            return f"Error selecting dropdown option: {str(e)}"
+    
+    async def _arun(self, x: int, y: int, options: list, target_value: str, dropdown_height: int = 30) -> str:
+        """Execute the tool asynchronously"""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: self._run(x, y, options, target_value, dropdown_height))
+        await asyncio.sleep(0.1)  # Additional wait after selection
+        return result
+
+
 def get_async_screen_control_tools() -> list[BaseTool]:
     """Get all async screen control tools"""
     return [
@@ -429,5 +522,6 @@ def get_async_screen_control_tools() -> list[BaseTool]:
         CopyTool(),
         TabTool(),
         PasteTool(),
+        SelectDropdownOptionTool(),
     ]
 

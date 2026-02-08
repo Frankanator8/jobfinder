@@ -344,6 +344,16 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 f"  Required: {field.required}"
             )
             
+            # Add options for SELECT/dropdown fields
+            if field.field_type == FieldType.SELECT and field.options:
+                field_desc += f"\n  Dropdown Options ({len(field.options)} options):"
+                for i, option in enumerate(field.options):
+                    option_text = option.get('text', option.get('value', ''))
+                    option_value = option.get('value', '')
+                    disabled = option.get('disabled', False)
+                    status = " (disabled)" if disabled else ""
+                    field_desc += f"\n    [{i}] Text: '{option_text}', Value: '{option_value}'{status}"
+            
             # Add suggested value if we found a match
             if best_match_value is not None:
                 field_desc += f"\n  Suggested Data Key: '{best_match_key}' (match score: {best_score})\n"
@@ -520,18 +530,24 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "   - Step 4: WAIT for typing to complete",
             delay_text_field,
             "",
-            "   For DROPDOWN/SELECT fields (CRITICAL - special handling required):",
+            "   For DROPDOWN/SELECT fields (CRITICAL - use select_dropdown_option tool):",
             "   - Step 0: Read the field's LABEL (shown in the field description above)",
             "   - Step 0.1: Find the best matching data key from 'AVAILABLE USER DATA' by comparing the LABEL to data keys",
             "   - Step 0.2: Use the suggested match if provided, or find the best semantic match yourself",
-            "   - Step 0.3: Once you've identified the matching data, proceed to fill the field",
+            "   - Step 0.3: Once you've identified the matching data value, proceed to fill the field",
             "   - Step 0.5: Check if field is FULLY visible (use get_screen_info, scroll if needed)",
-            "   - Step 1: Click on the dropdown field to OPEN it (use click_mouse tool)",
-            "   - Step 2: WAIT 0.2 seconds for the dropdown menu to appear",
-            "   - Step 3: Type the matched option text to search/select it (use type_text tool)",
-            "   - Step 4: WAIT 0.1 seconds after typing",
-            "   - Step 5: Press Enter to confirm the selection (use press_key tool with 'enter')",
-            "   - Step 6: WAIT for selection to complete",
+            "   - Step 1: Use select_dropdown_option tool with:",
+            "     * x, y: Center coordinates of the dropdown field (from field description)",
+            "     * options: The list of dropdown options from the field description (each has 'text' and 'value')",
+            "     * target_value: The matched user data value (string) to match against options",
+            "     * dropdown_height: Height of the dropdown field (from bounding box in field description)",
+            "   - The tool will:",
+            "     1. Match your target_value to the best option (by text or value)",
+            "     2. Click the dropdown to open it",
+            "     3. Calculate the option index (0-based, in order)",
+            "     4. Move mouse down by equal increments (index * 28 pixels) to reach the target option",
+            "     5. Click to select the option",
+            "   - Step 2: WAIT for selection to complete",
             delay_dropdown_field,
             "",
             "   For CHECKBOX fields:",
@@ -545,7 +561,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "   - Step 2: WAIT for the click to complete",
             "",
             "CRITICAL: Do NOT attempt to clear text using Ctrl+A or Delete - these are DISABLED.",
-            "For dropdowns, you MUST click to open, type the option, then press Enter.",
+            "For dropdowns, you MUST use the select_dropdown_option tool (do NOT type or press Enter).",
             "3. NEVER call multiple tools at once - each tool must complete before calling the next",
             "4. Be precise with coordinates",
             "5. The tools have built-in delays - trust them and execute sequentially",
@@ -653,7 +669,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
         data: Dict[str, Any],
         delay_between_fields: float = 0.1,
         headless: bool = True,
-        max_steps: int = 10,
+        max_steps: int = 200,
     ) -> Dict[str, Any]:
         """
         Analyze a URL, get fields, and fill them. Handles multi-step forms by
@@ -695,9 +711,19 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             previous_title = initial_title
             previous_hash = initial_hash
             
+            # Track URL from input stream (clipboard) - persists across loop iterations
+            input_stream_url = None
+            
             while step < max_steps:
                 step += 1
-                current_url = selector.page.url
+                # CRITICAL: If we have an input stream URL from previous workflow, use it
+                # Otherwise, get from browser
+                if input_stream_url:
+                    current_url = input_stream_url
+                    logger.info(f"Using input stream URL from previous workflow: {current_url}")
+                    input_stream_url = None  # Reset after using it
+                else:
+                    current_url = selector.page.url
                 current_hash = current_url.split('#')[1] if '#' in current_url else None
                 
                 try:
@@ -896,6 +922,10 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 logger.info(f"{'='*60}")
                 
                 # Check if there's a next button to click
+                # CRITICAL: This workflow (fixed position, click, copy, tab, paste, tab) 
+                # will execute EVERY time there's a next button, not just the first time.
+                # After the workflow completes, if there are more next buttons, the loop
+                # will continue and execute this workflow again.
                 if next_buttons:
                     print(f"Found {len(next_buttons)} next button(s). Clicking it to proceed to next step...")
                     logger.info(f"\n{'='*60}")
@@ -934,8 +964,8 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     center_x = bbox.get("x", 0) + bbox.get("width", 0) // 2
                     center_y = bbox.get("y", 0) + bbox.get("height", 0) // 2
                     
-                    # Offset Y coordinate down a little (add 5-10 pixels)
-                    offset_down = 8  # Pixels to offset downward
+                    # Offset Y coordinate down more (moved down significantly)
+                    offset_down = 20  # Pixels to offset downward (increased from 8)
                     click_y = center_y + offset_down
                     
                     logger.info(f"\n{'='*60}")
@@ -1236,9 +1266,41 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     next_buttons = fresh_next_buttons
                     final_submit_buttons = fresh_final_submit_buttons
                     
-                    # Continue to check for next buttons or completion
-                    # (The loop will naturally continue and check these updated buttons)
-                    continue
+                    # CRITICAL: After workflow completes, check if there are more next buttons
+                    # If yes, the loop will continue and execute the workflow again
+                    # This ensures the workflow (fixed position, click, copy, etc.) runs EVERY time there's a next button
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"WORKFLOW COMPLETE - CHECKING FOR MORE NEXT BUTTONS")
+                    logger.info(f"Next buttons found: {len(next_buttons)}")
+                    logger.info(f"Final submit buttons found: {len(final_submit_buttons)}")
+                    logger.info(f"{'='*60}")
+                    
+                    # If there are more next buttons, we need to execute the workflow again
+                    # CRITICAL: Update tracking variables to reflect the new page state from workflow
+                    # Then continue the loop so it will check for next_buttons and execute workflow again
+                    if next_buttons:
+                        logger.info(f"✓ More next buttons found - will execute workflow again on next iteration")
+                        logger.info(f"✓ Updating tracking variables and continuing loop")
+                        # CRITICAL: Store the input stream URL so it's used in the next iteration
+                        input_stream_url = current_url  # This is the final_url from input stream
+                        # CRITICAL: Update tracking variables to reflect the new page state from workflow
+                        previous_url = current_url  # Update to the URL from input stream
+                        previous_title = current_title  # Update to the title from workflow
+                        previous_hash = current_hash  # Update to the hash from workflow
+                        logger.info(f"Updated tracking variables for next iteration:")
+                        logger.info(f"  input_stream_url = {input_stream_url}")
+                        logger.info(f"  previous_url = {previous_url}")
+                        logger.info(f"  previous_title = {previous_title}")
+                        logger.info(f"  previous_hash = {previous_hash or 'None'}")
+                        # Continue the loop - it will scan fields, fill them, then check for next_buttons
+                        # The workflow will execute again when next_buttons are found
+                        continue
+                    elif final_submit_buttons:
+                        logger.info(f"✓ Final submit button found - form should be complete")
+                        break
+                    else:
+                        logger.info(f"✓ No more buttons found - form complete")
+                        break
                 
                 # If there's a final submit button, the agent should have clicked it
                 if final_submit_buttons:
