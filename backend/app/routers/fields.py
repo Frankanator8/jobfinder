@@ -70,6 +70,7 @@ class FieldInfo(BaseModel):
     required: bool
     selector: str
     bounding_box: dict
+    options: list
 
 
 class AnalyzeResponse(BaseModel):

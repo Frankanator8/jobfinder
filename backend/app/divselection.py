@@ -118,6 +118,9 @@ class FormField:
     required: bool
     selector: str
     bounding_box: dict = field(default_factory=dict)
+    is_next_button: bool = False  # True if this is a "next/continue" button (multi-step)
+    is_final_submit: bool = False  # True if this is a final submit button
+    options: list = field(default_factory=list)  # For select/dropdown elements
 
     def to_dict(self) -> dict:
         return {
@@ -128,7 +131,10 @@ class FormField:
             "placeholder": self.placeholder,
             "required": self.required,
             "selector": self.selector,
-            "bounding_box": self.bounding_box
+            "bounding_box": self.bounding_box,
+            "is_next_button": self.is_next_button,
+            "is_final_submit": self.is_final_submit,
+            "options": self.options
         }
 
 
@@ -140,9 +146,15 @@ FIELD_KEYWORDS = {
     FieldType.FILE: ["resume", "cv", "upload", "file", "attachment", "document"],
     FieldType.URL: ["linkedin", "portfolio", "website", "github", "url", "link"],
     FieldType.DATE: ["date", "start", "available", "availability"],
-    FieldType.SUBMIT: ["submit", "send", "apply", "next", "continue", "proceed", "finish", "complete"],
+    FieldType.SUBMIT: ["review", "submit", "send", "apply", "next", "continue", "proceed", "finish", "complete", "register"],
     FieldType.BUTTON: ["button", "btn", "click", "action"],
 }
+
+# Keywords that indicate "next-like" buttons (multi-step navigation, not final submission)
+NEXT_BUTTON_KEYWORDS = ["review", "next", "continue", "proceed", "forward", "step", "page"]
+
+# Keywords that indicate final submission buttons
+FINAL_SUBMIT_KEYWORDS = ["submit", "send", "apply", "finish", "complete", "send application", "submit application", "apply now"]
 
 # Highlight colors for different field types
 HIGHLIGHT_COLORS = {
@@ -314,6 +326,41 @@ class DivSelector:
             return FieldType.SUBMIT
         # Default to generic button
         return FieldType.BUTTON
+    
+    def _classify_button_intent(self, label: str, name: str, field_type: FieldType) -> tuple[bool, bool]:
+        """
+        Classify button intent: next-like (multi-step) vs final submit.
+        
+        Args:
+            label: Button label text
+            name: Button name attribute
+            field_type: FieldType of the button
+            
+        Returns:
+            Tuple of (is_next_button, is_final_submit)
+        """
+        if field_type not in [FieldType.SUBMIT, FieldType.BUTTON]:
+            return False, False
+        
+        searchable = " ".join([label or "", name or ""]).lower()
+        
+        # Check for next-like keywords first
+        is_next = any(kw in searchable for kw in NEXT_BUTTON_KEYWORDS)
+        
+        # Check for final submit keywords
+        is_final = any(kw in searchable for kw in FINAL_SUBMIT_KEYWORDS)
+        
+        # If it has both, prioritize final submit if it's more explicit
+        if is_next and is_final:
+            # More explicit final submit keywords take precedence
+            explicit_final = ["submit application", "send application", "apply now", "finish", "complete"]
+            if any(kw in searchable for kw in explicit_final):
+                return False, True
+            # Otherwise, if it says "next" or "continue", it's likely a next button
+            if any(kw in searchable for kw in ["next", "continue", "proceed"]):
+                return True, False
+        
+        return is_next, is_final
 
     async def _get_element_attributes(self, element: ElementHandle) -> dict:
         """Get relevant attributes from an element."""
@@ -359,6 +406,52 @@ class DivSelector:
             }
         """)
         return label or ""
+
+    async def _get_select_options(self, element: ElementHandle) -> list:
+        """
+        Extract options from a select/dropdown element.
+
+        Args:
+            element: The select element
+
+        Returns:
+            List of option dictionaries with value and text
+        """
+        options = await element.evaluate("""
+            el => {
+                const options = [];
+                
+                // Handle native <select> elements
+                if (el.tagName.toLowerCase() === 'select') {
+                    const optionElements = el.options || el.querySelectorAll('option');
+                    for (let i = 0; i < optionElements.length; i++) {
+                        const opt = optionElements[i];
+                        options.push({
+                            value: opt.value || '',
+                            text: opt.textContent.trim() || opt.text || '',
+                            selected: opt.selected || false,
+                            disabled: opt.disabled || false
+                        });
+                    }
+                }
+                
+                // Also check for child <option> elements (fallback)
+                if (options.length === 0) {
+                    const optionElements = el.querySelectorAll('option');
+                    for (const opt of optionElements) {
+                        options.push({
+                            value: opt.value || '',
+                            text: opt.textContent.trim() || '',
+                            selected: opt.selected || false,
+                            disabled: opt.disabled || false
+                        });
+                    }
+                }
+                
+                return options;
+            }
+        """)
+        return options or []
 
     async def find_fields(self) -> list[FormField]:
         """
@@ -436,6 +529,14 @@ class DivSelector:
                     else:
                         unique_selector = f"{selector}:nth-of-type({i + 1})"
 
+                    # Classify button intent (next vs final submit)
+                    is_next_button, is_final_submit = self._classify_button_intent(label, element_name, field_type)
+
+                    # Extract options for select/dropdown elements
+                    options = []
+                    if field_type == FieldType.SELECT:
+                        options = await self._get_select_options(element)
+
                     form_field = FormField(
                         element_id=element_id or f"field_{i}",
                         field_type=field_type,
@@ -445,11 +546,14 @@ class DivSelector:
                         required=attrs.get("required", False),
                         selector=unique_selector,
                         bounding_box={
-                            "x": box["x"],
-                            "y": box["y"],
-                            "width": box["width"],
-                            "height": box["height"]
-                        }
+                            "x": box["x"]+5,
+                            "y": box["y"]+5,
+                            "width": box["width"]-10,
+                            "height": box["height"]-10
+                        },
+                        is_next_button=is_next_button,
+                        is_final_submit=is_final_submit,
+                        options=options
                     )
 
                     self.detected_fields.append(form_field)
@@ -585,6 +689,7 @@ class DivSelector:
         print("Taking screenshot...")
         screenshot_path = await self.take_screenshot()
         print(f"Screenshot saved to: {screenshot_path}")
+
 
         return {
             "source": source,

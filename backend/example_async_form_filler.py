@@ -17,13 +17,70 @@ async def main():
     # Initialize the agent
     agent = AsyncFormFillerAgent()
     
-    # Data to fill into the form
+    # Job Application Data - Organized by pages
+    # The agent will handle multi-step forms automatically
     form_data = {
-        "name": "John Doe",
-        "email": "john.doe@example.com",
-        "phone": "555-1234",
+        # Page 1 - Personal Information
         "firstname": "John",
-        "lastname": "Doe",
+        "first name": "John",
+        "first": "John",
+        "lastname": "Smith",
+        "last name": "Smith",
+        "last": "Smith",
+        "name": "John Smith",
+        "full name": "John Smith",
+        "email": "john.smith@email.com",
+        "phone": "(555) 123-4567",
+        "telephone": "(555) 123-4567",
+        "mobile": "(555) 123-4567",
+        
+        # Page 2 - Professional Information
+        "position": "Software Engineer",
+        "job title": "Software Engineer",
+        "title": "Software Engineer",
+        "experience years": "5",
+        "experience": "5",
+        "years": "5",
+        "years of experience": "5",
+        "current company": "Tech Solutions Inc.",
+        "company": "Tech Solutions Inc.",
+        "employer": "Tech Solutions Inc.",
+        
+        # Page 3 - Education
+        "education": "Bachelor of Science in Computer Science",
+        "degree": "Bachelor of Science in Computer Science",
+        "university": "State University",
+        "college": "State University",
+        "school": "State University",
+        "graduation year": "2019",
+        "year": "2019",
+        "graduated": "2019",
+        
+        # Page 4 - Cover Letter
+        "cover letter": """Dear Hiring Manager,
+
+I am writing to express my strong interest in the Software Engineer position at your company. With over 5 years of experience in software development and a solid foundation in computer science, I am confident that I would be a valuable addition to your team.
+
+During my time at Tech Solutions Inc., I have developed expertise in full-stack development, working with modern technologies and frameworks. I have successfully led multiple projects from conception to deployment, collaborating with cross-functional teams to deliver high-quality software solutions.
+
+I am particularly drawn to this opportunity because of your company's commitment to innovation and excellence. I am excited about the possibility of contributing to your team and helping drive your technology initiatives forward.
+
+Thank you for considering my application. I look forward to the opportunity to discuss how my skills and experience align with your needs.
+
+Sincerely,
+John Smith""",
+        "coverletter": """Dear Hiring Manager,
+
+I am writing to express my strong interest in the Software Engineer position at your company. With over 5 years of experience in software development and a solid foundation in computer science, I am confident that I would be a valuable addition to your team.
+
+During my time at Tech Solutions Inc., I have developed expertise in full-stack development, working with modern technologies and frameworks. I have successfully led multiple projects from conception to deployment, collaborating with cross-functional teams to deliver high-quality software solutions.
+
+I am particularly drawn to this opportunity because of your company's commitment to innovation and excellence. I am excited about the possibility of contributing to your team and helping drive your technology initiatives forward.
+
+Thank you for considering my application. I look forward to the opportunity to discuss how my skills and experience align with your needs.
+
+Sincerely,
+John Smith""",
     }
     
     # Fill the form (defaults to localhost:6767)
