@@ -1,0 +1,32 @@
+{
+  "flutter": {
+    "platforms": {
+      "ios": {
+        "default": {
+          "projectId": "jobfinder-df15b",
+          "appId": "1:230289521757:ios:3ec45be3925aae953761b4",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "macos": {
+        "default": {
+          "projectId": "jobfinder-df15b",
+          "appId": "1:230289521757:ios:3ec45be3925aae953761b4",
+          "uploadDebugSymbols": false,
+          "fileOutput": "macos/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "jobfinder-df15b",
+          "configurations": {
+            "ios": "1:230289521757:ios:3ec45be3925aae953761b4",
+            "macos": "1:230289521757:ios:3ec45be3925aae953761b4",
+            "web": "1:230289521757:web:3c72c9ed4ac390d13761b4"
+          }
+        }
+      }
+    }
+  }
+}
