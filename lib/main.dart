@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
-import 'screens/job_swipe_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'screens/auth_gate.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const MyApp());
 }
 
@@ -54,10 +58,7 @@ class _MyAppState extends State<MyApp> {
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: Colors.grey.shade300,
-              width: 1,
-            ),
+            side: BorderSide(color: Colors.grey.shade300, width: 1),
           ),
           color: Colors.white,
         ),
@@ -97,18 +98,13 @@ class _MyAppState extends State<MyApp> {
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: Colors.grey.shade800,
-              width: 1,
-            ),
+            side: BorderSide(color: Colors.grey.shade800, width: 1),
           ),
           color: const Color(0xFF303134),
         ),
       ),
       themeMode: _themeMode,
-      home: JobSwipeScreen(
-        onThemeToggle: _toggleTheme,
-      ),
+      home: AuthGate(onThemeToggle: _toggleTheme),
     );
   }
 }

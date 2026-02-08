@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import '../models/user_profile.dart';
+import '../services/auth_service.dart';
 
 class UserInfoScreen extends StatefulWidget {
   final UserProfile? initialProfile;
   final Function(UserProfile) onSave;
 
+  /// When true, this is the initial profile setup after sign-in.
+  /// The user cannot navigate back and must complete the form.
+  final bool isInitialSetup;
+
   const UserInfoScreen({
     super.key,
     this.initialProfile,
     required this.onSave,
+    this.isInitialSetup = false,
   });
 
   @override
@@ -59,9 +65,10 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     _experienceController = TextEditingController(text: profile.experience);
     _bioController = TextEditingController(text: profile.bio);
     _skillController = TextEditingController();
-    _preferredJobType = profile.preferredJobType.isNotEmpty
-        ? profile.preferredJobType
-        : 'Full-time';
+    _preferredJobType =
+        profile.preferredJobType.isNotEmpty
+            ? profile.preferredJobType
+            : 'Full-time';
     _salaryRange = profile.salaryRange;
     _skills = List.from(profile.skills);
   }
@@ -95,7 +102,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     });
   }
 
-  void _saveProfile() {
+  Future<void> _saveProfile() async {
     if (_formKey.currentState!.validate()) {
       final profile = UserProfile(
         name: _nameController.text.trim(),
@@ -110,9 +117,15 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
         salaryRange: _salaryRange,
       );
 
-      widget.onSave(profile);
-      Navigator.pop(context);
-      
+      await widget.onSave(profile);
+
+      if (!mounted) return;
+
+      // Only pop if this is NOT the initial setup (auth_gate handles navigation)
+      if (!widget.isInitialSetup) {
+        Navigator.pop(context);
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Profile saved successfully'),
@@ -129,11 +142,26 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF202124) : Colors.white,
       appBar: AppBar(
-        title: const Text('Profile'),
+        title: Text(
+          widget.isInitialSetup ? 'Complete Your Profile' : 'Profile',
+        ),
         elevation: 0,
         backgroundColor: isDark ? const Color(0xFF303134) : Colors.white,
         foregroundColor: isDark ? Colors.white : const Color(0xFF202124),
         surfaceTintColor: Colors.transparent,
+        automaticallyImplyLeading: !widget.isInitialSetup,
+        actions:
+            widget.isInitialSetup
+                ? [
+                  IconButton(
+                    icon: const Icon(Icons.logout),
+                    tooltip: 'Sign Out',
+                    onPressed: () async {
+                      await AuthService().signOut();
+                    },
+                  ),
+                ]
+                : null,
       ),
       body: Form(
         key: _formKey,
@@ -275,19 +303,22 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: _skills.map((skill) {
-                  return Chip(
-                    label: Text(skill),
-                    onDeleted: () => _removeSkill(skill),
-                    deleteIcon: const Icon(Icons.close, size: 18),
-                    backgroundColor: isDark
-                        ? Colors.grey.shade800
-                        : Colors.grey.shade100,
-                    labelStyle: TextStyle(
-                      color: isDark ? Colors.white : const Color(0xFF202124),
-                    ),
-                  );
-                }).toList(),
+                children:
+                    _skills.map((skill) {
+                      return Chip(
+                        label: Text(skill),
+                        onDeleted: () => _removeSkill(skill),
+                        deleteIcon: const Icon(Icons.close, size: 18),
+                        backgroundColor:
+                            isDark
+                                ? Colors.grey.shade800
+                                : Colors.grey.shade100,
+                        labelStyle: TextStyle(
+                          color:
+                              isDark ? Colors.white : const Color(0xFF202124),
+                        ),
+                      );
+                    }).toList(),
               ),
             ],
             const SizedBox(height: 48),
@@ -304,9 +335,9 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
                 ),
                 elevation: 0,
               ),
-              child: const Text(
-                'Save Profile',
-                style: TextStyle(
+              child: Text(
+                widget.isInitialSetup ? 'Get Started' : 'Save Profile',
+                style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
                 ),
@@ -342,24 +373,23 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     void Function(String)? onSubmitted,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       maxLines: maxLines,
       validator: validator,
       onFieldSubmitted: onSubmitted,
-      style: TextStyle(
-        color: isDark ? Colors.white : const Color(0xFF202124),
-      ),
+      style: TextStyle(color: isDark ? Colors.white : const Color(0xFF202124)),
       decoration: InputDecoration(
         labelText: label,
         hintText: hintText,
         prefixIcon: Icon(icon, color: const Color(0xFF4285F4)),
         filled: true,
-        fillColor: isDark
-            ? Colors.grey.shade900.withOpacity(0.5)
-            : Colors.grey.shade50,
+        fillColor:
+            isDark
+                ? Colors.grey.shade900.withOpacity(0.5)
+                : Colors.grey.shade50,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(
@@ -374,23 +404,15 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: Color(0xFF4285F4),
-            width: 2,
-          ),
+          borderSide: const BorderSide(color: Color(0xFF4285F4), width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: Color(0xFFEA4335),
-          ),
+          borderSide: const BorderSide(color: Color(0xFFEA4335)),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: Color(0xFFEA4335),
-            width: 2,
-          ),
+          borderSide: const BorderSide(color: Color(0xFFEA4335), width: 2),
         ),
       ),
     );
@@ -403,16 +425,20 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     required void Function(String?) onChanged,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return DropdownButtonFormField<String>(
       value: value,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: const Icon(Icons.settings_outlined, color: Color(0xFF4285F4)),
+        prefixIcon: const Icon(
+          Icons.settings_outlined,
+          color: Color(0xFF4285F4),
+        ),
         filled: true,
-        fillColor: isDark
-            ? Colors.grey.shade900.withOpacity(0.5)
-            : Colors.grey.shade50,
+        fillColor:
+            isDark
+                ? Colors.grey.shade900.withOpacity(0.5)
+                : Colors.grey.shade50,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(
@@ -427,28 +453,23 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: Color(0xFF4285F4),
-            width: 2,
-          ),
+          borderSide: const BorderSide(color: Color(0xFF4285F4), width: 2),
         ),
       ),
-      items: items.map((item) {
-        return DropdownMenuItem<String>(
-          value: item,
-          child: Text(
-            item,
-            style: TextStyle(
-              color: isDark ? Colors.white : const Color(0xFF202124),
-            ),
-          ),
-        );
-      }).toList(),
+      items:
+          items.map((item) {
+            return DropdownMenuItem<String>(
+              value: item,
+              child: Text(
+                item,
+                style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xFF202124),
+                ),
+              ),
+            );
+          }).toList(),
       onChanged: onChanged,
-      style: TextStyle(
-        color: isDark ? Colors.white : const Color(0xFF202124),
-      ),
+      style: TextStyle(color: isDark ? Colors.white : const Color(0xFF202124)),
     );
   }
 }
-
