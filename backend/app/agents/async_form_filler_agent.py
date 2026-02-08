@@ -80,7 +80,6 @@ class AsyncFormFillerAgent:
 
 Your capabilities:
 - Get screen dimensions to check if fields are visible
-- Scroll the page if fields or buttons are outside the visible area
 - Move the mouse cursor to specific coordinates
 - Click on form fields using their bounding box center coordinates
 - Type text into text fields
@@ -90,6 +89,7 @@ IMPORTANT RESTRICTIONS:
 - Ctrl+A (select all) is DISABLED - you cannot use it
 - Delete key is DISABLED - you cannot use it
 - Triple click is DISABLED - you cannot use it
+- Scrolling is DISABLED - you cannot scroll the page
 - Just click on fields and type - new text will be appended or replace existing text automatically
 
 CRITICAL RULES - EXECUTE SEQUENTIALLY:
@@ -551,12 +551,10 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             delay_dropdown_field,
             "",
             "   For CHECKBOX fields:",
-            "   - Step 0: Check if field is FULLY visible",
             "   - Step 1: Click on the checkbox to toggle it (use click_mouse tool)",
             "   - Step 2: WAIT for the click to complete",
             "",
             "   For RADIO fields:",
-            "   - Step 0: Check if field is FULLY visible",
             "   - Step 1: Click on the radio button to select it (use click_mouse tool)",
             "   - Step 2: WAIT for the click to complete",
             "",
@@ -565,6 +563,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "3. NEVER call multiple tools at once - each tool must complete before calling the next",
             "4. Be precise with coordinates",
             "5. The tools have built-in delays - trust them and execute sequentially",
+            "6. After filling all fiels and pressing some variation of a NEXT button (if it exists), you will receive new fields from the next page - repeat the process for the new page",
         ])
         
         # Add button clicking instructions
@@ -576,12 +575,11 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "",
                 f"{chr(10).join(next_button_descriptions)}",
                 "",
-                "   - Step 0: Check if button is FULLY visible (use get_screen_info, scroll REPEATEDLY until fully visible)",
-                "   - Step 0.5: Ensure button's Top Y >= 0 AND Bottom Y <= screen height before proceeding",
                 "   - Step 1: Use click_mouse tool with the button's center coordinates",
                 "   - Step 2: WAIT for the click to complete",
                 "   - Step 3: Wait 0.5-1 seconds for the new page to load",
                 "   - NOTE: After clicking next, you will receive new fields from the next page",
+                "   - CRITICAL: The system will automatically capture the new URL after the next button is clicked",
             ])
         
         if final_submit_descriptions:
@@ -591,8 +589,6 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "",
                 f"{chr(10).join(final_submit_descriptions)}",
                 "",
-                "   - Step 0: Check if button is FULLY visible (use get_screen_info, scroll REPEATEDLY until fully visible)",
-                "   - Step 0.5: Ensure button's Top Y >= 0 AND Bottom Y <= screen height before proceeding",
                 "   - Step 1: Use click_mouse tool with the button's center coordinates",
                 "   - Step 2: WAIT for the click to complete",
                 "   - This will FINALLY SUBMIT the entire form",
@@ -711,19 +707,14 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             previous_title = initial_title
             previous_hash = initial_hash
             
-            # Track URL from input stream (clipboard) - persists across loop iterations
-            input_stream_url = None
-            
             while step < max_steps:
                 step += 1
-                # CRITICAL: If we have an input stream URL from previous workflow, use it
-                # Otherwise, get from browser
-                if input_stream_url:
-                    current_url = input_stream_url
-                    logger.info(f"Using input stream URL from previous workflow: {current_url}")
-                    input_stream_url = None  # Reset after using it
-                else:
-                    current_url = selector.page.url
+
+                logger.info(f"\n{'='*60}")
+                logger.info(f"STARTING STEP {step}")
+                logger.info(f"{'='*60}")
+
+                current_url = selector.page.url
                 current_hash = current_url.split('#')[1] if '#' in current_url else None
                 
                 try:
@@ -790,11 +781,8 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 previous_hash = current_hash
                 
                 print(f"Processing form step {step}...")
-                logger.info(f"\n{'='*60}")
-                logger.info(f"PROCESSING FORM STEP {step}")
                 logger.info(f"Current URL: {current_url}")
-                logger.info(f"{'='*60}")
-                
+
                 # IMPORTANT: Get fresh fields from current page using divselection
                 # This is called on initial load and after each "next" button click
                 logger.info("Running divselection.find_fields() to detect fields on current page...")
@@ -802,12 +790,6 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 
                 # Verify we're on the correct page before scanning
                 actual_url = selector.page.url
-                if actual_url != current_url:
-                    logger.warning(f"⚠️  URL mismatch detected!")
-                    logger.warning(f"  Expected URL: {current_url}")
-                    logger.warning(f"  Actual page URL: {actual_url}")
-                    logger.warning(f"  Using actual page URL for field detection")
-                    current_url = actual_url  # Update to actual URL
                 
                 # Ensure page is ready before scanning
                 try:
@@ -820,14 +802,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 logger.info(f"✓ divselection.find_fields() completed")
                 logger.info(f"✓ Found {len(fields)} total fields on page {step}")
                 logger.info(f"✓ URL analyzed: {current_url}")
-                
-                # Double-check the page URL after scanning
-                post_scan_url = selector.page.url
-                if post_scan_url != current_url:
-                    logger.warning(f"⚠️  URL changed during field scanning!")
-                    logger.warning(f"  Before scan: {current_url}")
-                    logger.warning(f"  After scan: {post_scan_url}")
-                    current_url = post_scan_url  # Update to latest URL
+
                 
                 # Log detailed field breakdown
                 if fields:
@@ -921,399 +896,178 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 logger.info(f"  Failed: {len(result.get('failed_fields', []))} fields")
                 logger.info(f"{'='*60}")
                 
-                # Check if there's a next button to click
-                # CRITICAL: This workflow (fixed position, click, copy, tab, paste, tab) 
-                # will execute EVERY time there's a next button, not just the first time.
-                # After the workflow completes, if there are more next buttons, the loop
-                # will continue and execute this workflow again.
-                if next_buttons:
-                    print(f"Found {len(next_buttons)} next button(s). Clicking it to proceed to next step...")
+                # Check if there's a final submit button to click (before next button)
+                if final_submit_buttons and not next_buttons:
+                    print(f"Found {len(final_submit_buttons)} final submit button(s). Clicking final submit button...")
                     logger.info(f"\n{'='*60}")
-                    logger.info(f"GUARANTEEING NEXT BUTTON CLICK")
+                    logger.info(f"CLICKING FINAL SUBMIT BUTTON")
                     logger.info(f"{'='*60}")
-                    
-                    # Store current page state before navigation (multiple detection methods)
-                    previous_url = selector.page.url
-                    previous_title = await selector.page.title()
-                    previous_hash = selector.page.url.split('#')[1] if '#' in selector.page.url else None
-                    
-                    # Get initial DOM fingerprint (hash of page content)
-                    try:
-                        previous_dom_hash = await selector.page.evaluate("""
-                            () => {
-                                const body = document.body;
-                                if (!body) return '';
-                                // Create a simple hash of visible content
-                                const text = body.innerText || body.textContent || '';
-                                const formCount = document.querySelectorAll('form, input, select, textarea').length;
-                                return text.substring(0, 100) + '|' + formCount;
-                            }
-                        """)
-                    except Exception as e:
-                        logger.warning(f"Could not get initial DOM hash: {e}")
-                        previous_dom_hash = None
-                    
-                    logger.info(f"Current URL before next click: {previous_url}")
-                    logger.info(f"Current title before next click: {previous_title}")
-                    logger.info(f"Current hash before next click: {previous_hash or 'None'}")
-                    
-                    # GUARANTEE: Actually click the next button programmatically
+
+                    # Click the final submit button programmatically
                     import pyautogui
-                    next_button = next_buttons[0]  # Use the first next button
-                    bbox = next_button.bounding_box
+                    final_submit_button = final_submit_buttons[0]  # Use the first final submit button
+                    bbox = final_submit_button.bounding_box
                     center_x = bbox.get("x", 0) + bbox.get("width", 0) // 2
                     center_y = bbox.get("y", 0) + bbox.get("height", 0) // 2
-                    
-                    # Offset Y coordinate down more (moved down significantly)
-                    offset_down = 20  # Pixels to offset downward (increased from 8)
+
+                    # Offset Y coordinate down slightly
+                    offset_down = 10  # Pixels to offset downward
                     click_y = center_y + offset_down
-                    
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"CLICKING NEXT BUTTON")
+
                     logger.info(f"Button center: ({center_x}, {center_y})")
                     logger.info(f"Click position (offset down): ({center_x}, {click_y})")
-                    logger.info(f"Button: '{next_button.label or next_button.name or 'Unnamed'}'")
-                    logger.info(f"{'='*60}")
-                    
-                    # Ensure button is visible before clicking
+                    logger.info(f"Button: '{final_submit_button.label or final_submit_button.name or 'Unnamed'}'")
+
                     try:
-                        # Scroll if needed to make button visible
-                        screen_width, screen_height = pyautogui.size()
-                        button_y = bbox.get("y", 0)
-                        button_height = bbox.get("height", 0)
-                        button_bottom_y = button_y + button_height
-                        
-                        if button_y < 0 or button_bottom_y > screen_height:
-                            logger.info("Button not fully visible, scrolling to make it visible...")
-                            if button_y < 0:
-                                # Scroll up
-                                pyautogui.scroll(-5)
-                            else:
-                                # Scroll down
-                                pyautogui.scroll(5)
-                            await asyncio.sleep(0.3)
-                        
                         # Move mouse to button position (offset down from center)
                         pyautogui.moveTo(center_x, click_y, duration=0.1)
                         await asyncio.sleep(0.1)
-                        
-                        # Click the next button at offset position
+
+                        # Click the final submit button at offset position
                         pyautogui.click(center_x, click_y, button='left', clicks=1)
-                        logger.info(f"✓ Next button clicked at ({center_x}, {click_y}) - offset {offset_down}px down from center")
-                        
-                        # Wait for click to register
-                        await asyncio.sleep(0.5)
-                        
-                        # Verify click was successful by checking if page state changed
-                        try:
-                            # Quick check if URL changed (indicates navigation started)
-                            current_url_check = selector.page.url
-                            if current_url_check != previous_url:
-                                logger.info(f"✓ Click verified - URL changed: {previous_url} → {current_url_check}")
-                            else:
-                                logger.info(f"✓ Click executed - waiting for navigation...")
-                        except Exception as e:
-                            logger.warning(f"Could not verify click: {e}, proceeding anyway")
-                        
+                        logger.info(f"✓ Final submit button clicked at ({center_x}, {click_y}) - offset {offset_down}px down from center")
+                        print(f"✓ Final submit button clicked successfully")
+
+                        # Wait for submission to process
+                        await asyncio.sleep(1.0)
+
+                        logger.info(f"✓ Form submission complete")
+                        logger.info(f"{'='*60}")
+
+                    except Exception as e:
+                        logger.error(f"Error clicking final submit button: {e}")
+                        print(f"⚠ Error clicking final submit button: {e}")
+
+                    # Form is complete after final submit
+                    break
+
+                # Check if there's a next button to click
+                if next_buttons:
+                    print(f"Found {len(next_buttons)} next button(s). Clicking to proceed to next step...")
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"CLICKING NEXT BUTTON")
+                    logger.info(f"{'='*60}")
+                    
+                    # Click the next button
+                    import pyautogui
+                    next_button = next_buttons[0]
+                    bbox = next_button.bounding_box
+                    center_x = bbox.get("x", 0) + bbox.get("width", 0) // 2
+                    center_y = bbox.get("y", 0) + bbox.get("height", 0) // 2 + 20  # Offset down
+
+                    logger.info(f"Clicking button at ({center_x}, {center_y})")
+
+                    try:
+                        pyautogui.moveTo(center_x, center_y, duration=0.1)
+                        await asyncio.sleep(0.05)
+                        pyautogui.click(center_x, center_y, button='left', clicks=1)
+                        logger.info(f"✓ Next button clicked")
                     except Exception as e:
                         logger.error(f"Error clicking next button: {e}")
-                        logger.info("Attempting to continue anyway...")
-                        await asyncio.sleep(0.5)
-                    
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"NEXT BUTTON CLICK CONFIRMED - PROCEEDING WITH URL WORKFLOW")
-                    logger.info(f"{'='*60}")
-                    
-                    # NEW WORKFLOW: Copy URL from browser, paste into input stream, then rescan
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"URL COPY/PASTE WORKFLOW AFTER NEXT BUTTON CLICK")
-                    logger.info(f"Current URL before copy: {previous_url}")
-                    logger.info(f"{'='*60}")
-                    
-                    # Import pyautogui for direct control
-                    import pyautogui
-                    import platform
-                    
-                    # Store the URL from clipboard (input stream) - this is the source of truth
-                    pasted_url_from_input_stream = None
-                    
-                    try:
-                        # Step 1: Move mouse to hardcoded position (410, 105) - this is where the URL is in browser
-                        logger.info("Step 1: Moving mouse to fixed position (410, 105)...")
-                        pyautogui.moveTo(410, 105, duration=0.1)
-                        await asyncio.sleep(0.1)
-                        logger.info("✓ Mouse moved to (410, 105)")
-                        
-                        # Step 2: Click on the browser URL bar to focus/select it
-                        logger.info("Step 2: Clicking on browser URL bar to focus it...")
-                        pyautogui.click(410, 105, button='left', clicks=1)
-                        await asyncio.sleep(0.2)  # Wait for click to register and URL to be selected
-                        logger.info("✓ Clicked on URL bar")
-                        
-                        # Step 3: Copy the URL (Command+C on Mac, Ctrl+C on Windows/Linux)
-                        logger.info("Step 3: Copying URL to clipboard...")
-                        if platform.system() == 'Darwin':  # Mac
-                            pyautogui.hotkey('command', 'c')
-                        else:  # Windows/Linux
-                            pyautogui.hotkey('ctrl', 'c')
-                        await asyncio.sleep(0.2)  # Wait for copy to complete
-                        logger.info("✓ URL copied to clipboard")
-                        
-                        # CRITICAL: Read the URL from clipboard (input stream) - this is the source of truth
-                        logger.info("Reading URL from clipboard (input stream)...")
-                        try:
-                            if platform.system() == 'Darwin':  # Mac
-                                result = subprocess.run(['pbpaste'], capture_output=True, text=True, timeout=1)
-                                pasted_url_from_input_stream = result.stdout.strip()
-                            elif platform.system() == 'Windows':  # Windows
-                                result = subprocess.run(['powershell', '-command', 'Get-Clipboard'], capture_output=True, text=True, timeout=1)
-                                pasted_url_from_input_stream = result.stdout.strip()
-                            else:  # Linux
-                                result = subprocess.run(['xclip', '-selection', 'clipboard', '-o'], capture_output=True, text=True, timeout=1)
-                                pasted_url_from_input_stream = result.stdout.strip()
-                            
-                            if pasted_url_from_input_stream:
-                                logger.info(f"✓ URL read from clipboard (input stream): {pasted_url_from_input_stream}")
-                            else:
-                                logger.warning("⚠ Clipboard appears empty, will use fallback")
-                        except Exception as clip_error:
-                            logger.warning(f"⚠ Could not read clipboard: {clip_error}, will use fallback")
-                        
-                        # Step 4: Tab once to move to the next available input field (Command+Tab on Mac, Ctrl+Tab on Windows/Linux)
-                        logger.info("Step 4: Pressing Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) to move to next input field...")
-                        if platform.system() == 'Darwin':  # Mac
-                            pyautogui.hotkey('command', 'tab')
-                        else:  # Windows/Linux
-                            pyautogui.hotkey('ctrl', 'tab')
-                        await asyncio.sleep(0.3)  # Wait for focus to move to next field
-                        logger.info("✓ Tabbed to next input field")
-                        
-                        # Step 5: Paste the URL (Command+V on Mac, Ctrl+V on Windows/Linux)
-                        logger.info("Step 5: Pasting URL into input field...")
-                        if platform.system() == 'Darwin':  # Mac
-                            pyautogui.hotkey('command', 'v')
-                        else:  # Windows/Linux
-                            pyautogui.hotkey('ctrl', 'v')
-                        await asyncio.sleep(0.5)  # Wait for paste and processing
-                        logger.info("✓ URL pasted into input field")
-                        
-                        # Step 6: Tab again (Command+Tab on Mac, Ctrl+Tab on Windows/Linux) - second tab after paste
-                        logger.info("Step 6: Pressing Command+Tab (Mac) or Ctrl+Tab (Windows/Linux) again after paste...")
-                        if platform.system() == 'Darwin':  # Mac
-                            pyautogui.hotkey('command', 'tab')
-                        else:  # Windows/Linux
-                            pyautogui.hotkey('ctrl', 'tab')
-                        await asyncio.sleep(0.3)  # Wait for focus to move
-                        logger.info("✓ Tabbed again after paste")
-                        
-                        logger.info(f"\n{'='*60}")
-                        logger.info(f"URL COPY/PASTE WORKFLOW COMPLETE")
-                        logger.info(f"STOPPING CURRENT AGENT EXECUTION")
-                        logger.info(f"RESTARTING WITH FRESH divselection SCAN")
-                        logger.info(f"{'='*60}")
-                        
-                        # Step 7: Wait briefly for the pasted URL to be processed
-                        await asyncio.sleep(1.0)  # Wait for the input stream to process the URL
-                        
-                        # Step 8: The input stream should have navigated to the new URL
-                        # Wait for page to be ready
-                        try:
-                            await selector.page.wait_for_load_state("domcontentloaded", timeout=5000)
-                            await asyncio.sleep(0.5)  # Additional wait for dynamic content
-                        except Exception as e:
-                            logger.warning(f"Page load wait timeout: {e}, proceeding anyway")
-                            await asyncio.sleep(0.5)
-                        
-                        # CRITICAL: Use the URL from clipboard (input stream) - DO NOT fetch from browser
-                        # COMMENTED OUT: All browser URL fetching - we use the pasted URL from input stream instead
-                        # final_url = selector.page.url  # COMMENTED OUT - not using browser URL
-                        # try:
-                        #     final_title = await selector.page.title()  # COMMENTED OUT - not using browser title
-                        # except Exception:
-                        #     final_title = previous_title
-                        # final_hash = final_url.split('#')[1] if '#' in final_url else None  # COMMENTED OUT
-                        
-                        # Use the URL from clipboard (input stream) - this is the source of truth
-                        if pasted_url_from_input_stream:
-                            final_url = pasted_url_from_input_stream
-                            logger.info(f"\n{'='*60}")
-                            logger.info(f"USING URL FROM INPUT STREAM (CLIPBOARD)")
-                            logger.info(f"URL from input stream: {final_url}")
-                            logger.info(f"{'='*60}")
-                        else:
-                            # Fallback only if clipboard read failed
-                            logger.warning("⚠ Clipboard read failed, using browser URL as fallback")
-                            final_url = selector.page.url
-                        
-                        # Extract hash if present
-                        final_hash = final_url.split('#')[1] if '#' in final_url else None
-                        
-                        # Use previous title (we don't fetch from browser)
-                        final_title = previous_title
-                        
-                        logger.info(f"\n{'='*60}")
-                        logger.info(f"URL PROCESSING COMPLETE")
-                        logger.info(f"Final URL from input stream: {final_url}")
-                        logger.info(f"Final hash: {final_hash or 'None'}")
-                        logger.info(f"{'='*60}")
-                        print(f"URL processed from input stream: {final_url}")
-                        
-                    except Exception as e:
-                        logger.error(f"Error in URL copy/paste workflow: {e}")
-                        logger.info("Falling back to clipboard URL...")
-                        # Fallback: try to read from clipboard if we have it
-                        if pasted_url_from_input_stream:
-                            final_url = pasted_url_from_input_stream
-                            logger.info(f"Using clipboard URL as fallback: {final_url}")
-                        else:
-                            # Last resort: use browser URL (but this should not happen)
-                            logger.warning("⚠ No clipboard URL available, using browser URL as last resort")
-                            final_url = selector.page.url
-                        final_title = previous_title
-                        final_hash = final_url.split('#')[1] if '#' in final_url else None
-                    
-                    # CRITICAL: Stop current MCP execution and immediately restart with fresh divselection scan
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"STOPPING CURRENT MCP AGENT EXECUTION")
-                    logger.info(f"IMMEDIATELY RE-RUNNING divselection.find_fields() ON NEW PAGE")
-                    logger.info(f"URL to analyze: {final_url}")
-                    logger.info(f"Restarting MCP agent with fresh fields from new page")
-                    logger.info(f"{'='*60}")
-                    
-                    # Update tracking variables for next iteration comparison
-                    previous_url = final_url
-                    previous_title = final_title
-                    previous_hash = final_hash
-                    
-                    # CRITICAL: Navigate to the URL from input stream (clipboard) - DO NOT use browser URL
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"NAVIGATING TO URL FROM INPUT STREAM (CLIPBOARD)")
-                    logger.info(f"URL from input stream: {final_url}")
-                    logger.info(f"{'='*60}")
-                    
-                    # Navigate to the URL from clipboard (input stream)
-                    try:
-                        await selector.navigate(final_url, wait_for_load=True)
-                        logger.info(f"✓ Navigated to URL from input stream: {final_url}")
-                    except Exception as nav_error:
-                        logger.error(f"Error navigating to URL from input stream: {nav_error}")
-                        logger.warning("Browser may already be on the correct page from input stream processing")
-                    
-                    # Immediately rescan with divselection to get fresh fields
-                    logger.info("Immediately rescanning page with divselection.find_fields()...")
-                    logger.info(f"Scanning URL from input stream: {final_url}")
-                    try:
-                        await selector.page.wait_for_load_state("domcontentloaded", timeout=3000)
-                        await asyncio.sleep(0.5)  # Brief wait for page to stabilize
-                    except Exception:
-                        await asyncio.sleep(0.5)
-                    
-                    # Get fresh fields immediately after paste - using URL from input stream
-                    fresh_fields = await selector.find_fields()
-                    logger.info(f"✓ Fresh scan complete - found {len(fresh_fields)} fields on new page")
-                    logger.info(f"✓ Scanned using URL from input stream: {final_url}")
-                    
-                    # Update current URL to the new URL
-                    current_url = final_url
-                    current_title = final_title
-                    current_hash = final_hash
-                    
-                    # Immediately restart MCP agent execution with fresh fields
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"RESTARTING MCP AGENT EXECUTION WITH FRESH FIELDS")
-                    logger.info(f"New URL: {current_url}")
-                    logger.info(f"New fields count: {len(fresh_fields)}")
-                    logger.info(f"{'='*60}")
-                    
-                    # Separate input fields from buttons
-                    fresh_input_fields = [f for f in fresh_fields if f.field_type.value not in ["submit", "button"]]
-                    fresh_next_buttons = [f for f in fresh_fields if hasattr(f, 'is_next_button') and f.is_next_button]
-                    fresh_final_submit_buttons = [f for f in fresh_fields if hasattr(f, 'is_final_submit') and f.is_final_submit]
-                    
-                    if fresh_input_fields:
-                        logger.info(f"Restarting agent to fill {len(fresh_input_fields)} input fields on new page...")
-                        
-                        # Get current page title for agent context
-                        try:
-                            fresh_page_title = await selector.page.title()
-                        except Exception:
-                            fresh_page_title = current_title
-                        
-                        # RESTART MCP agent execution with fresh fields
-                        fresh_result = await self.fill_form_fields(
-                            fresh_fields, 
-                            data, 
-                            delay_between_fields,
-                            current_url=current_url,
-                            current_title=fresh_page_title,
-                            step_number=step + 1  # Increment step number for new page
-                        )
-                        
-                        # Accumulate results
-                        all_filled_fields.extend(fresh_result.get("filled_fields", []))
-                        all_failed_fields.extend(fresh_result.get("failed_fields", []))
-                        all_errors.extend(fresh_result.get("errors", []))
-                        
-                        logger.info(f"\n{'='*60}")
-                        logger.info(f"RESTARTED MCP AGENT COMPLETED FOR NEW PAGE")
-                        logger.info(f"  Filled: {len(fresh_result.get('filled_fields', []))} fields")
-                        logger.info(f"  Failed: {len(fresh_result.get('failed_fields', []))} fields")
-                        logger.info(f"{'='*60}")
-                    else:
-                        logger.warning("No input fields found on new page after rescan")
-                    
-                    # Update next_buttons and final_submit_buttons for next check
-                    next_buttons = fresh_next_buttons
-                    final_submit_buttons = fresh_final_submit_buttons
-                    
-                    # CRITICAL: After workflow completes, check if there are more next buttons
-                    # If yes, the loop will continue and execute the workflow again
-                    # This ensures the workflow (fixed position, click, copy, etc.) runs EVERY time there's a next button
-                    logger.info(f"\n{'='*60}")
-                    logger.info(f"WORKFLOW COMPLETE - CHECKING FOR MORE NEXT BUTTONS")
-                    logger.info(f"Next buttons found: {len(next_buttons)}")
-                    logger.info(f"Final submit buttons found: {len(final_submit_buttons)}")
-                    logger.info(f"{'='*60}")
-                    
-                    # If there are more next buttons, we need to execute the workflow again
-                    # CRITICAL: Update tracking variables to reflect the new page state from workflow
-                    # Then continue the loop so it will check for next_buttons and execute workflow again
-                    if next_buttons:
-                        logger.info(f"✓ More next buttons found - will execute workflow again on next iteration")
-                        logger.info(f"✓ Updating tracking variables and continuing loop")
-                        # CRITICAL: Store the input stream URL so it's used in the next iteration
-                        input_stream_url = current_url  # This is the final_url from input stream
-                        # CRITICAL: Update tracking variables to reflect the new page state from workflow
-                        previous_url = current_url  # Update to the URL from input stream
-                        previous_title = current_title  # Update to the title from workflow
-                        previous_hash = current_hash  # Update to the hash from workflow
-                        logger.info(f"Updated tracking variables for next iteration:")
-                        logger.info(f"  input_stream_url = {input_stream_url}")
-                        logger.info(f"  previous_url = {previous_url}")
-                        logger.info(f"  previous_title = {previous_title}")
-                        logger.info(f"  previous_hash = {previous_hash or 'None'}")
-                        # Continue the loop - it will scan fields, fill them, then check for next_buttons
-                        # The workflow will execute again when next_buttons are found
                         continue
-                    elif final_submit_buttons:
-                        logger.info(f"✓ Final submit button found - form should be complete")
-                        break
+
+                    # Wait 1 second after clicking next button
+                    logger.info("Waiting 1 second after clicking next button...")
+                    await asyncio.sleep(1.0)
+
+                    # Automate URL copying and pasting using osascript
+                    logger.info("Automating URL copy/paste with osascript...")
+                    new_url = None
+                    try:
+                        import sys
+                        import select
+                        import platform
+                        import subprocess
+
+                        if platform.system() == 'Darwin':  # macOS
+                            # Step 1: Activate Google Chrome and copy URL
+                            logger.info("Step 1: Activating Chrome and copying URL...")
+                            subprocess.run([
+                                'osascript', '-e',
+                                'tell application "Google Chrome" to activate'
+                            ], capture_output=True, timeout=2)
+                            await asyncio.sleep(0.3)
+
+                            # Select address bar and copy URL (Command+L, Command+C)
+                            subprocess.run([
+                                'osascript', '-e',
+                                'tell application "System Events" to keystroke "l" using command down'
+                            ], capture_output=True, timeout=2)
+                            await asyncio.sleep(0.2)
+
+                            subprocess.run([
+                                'osascript', '-e',
+                                'tell application "System Events" to keystroke "c" using command down'
+                            ], capture_output=True, timeout=2)
+                            await asyncio.sleep(0.2)
+                            logger.info("✓ URL copied from Chrome address bar")
+
+                            # Step 2: Switch to IntelliJ where stdin is running
+                            logger.info("Step 2: Switching to IntelliJ to paste URL...")
+                            subprocess.run([
+                                'osascript', '-e',
+                                'tell application "IntelliJ IDEA" to activate'
+                            ], capture_output=True, timeout=2)
+                            await asyncio.sleep(0.3)
+
+                            # Step 3: Paste URL (Command+V) and press Enter
+                            logger.info("Step 3: Pasting URL into IntelliJ...")
+                            subprocess.run([
+                                'osascript', '-e',
+                                'tell application "System Events" to keystroke "v" using command down'
+                            ], capture_output=True, timeout=2)
+                            await asyncio.sleep(0.2)
+
+                            subprocess.run([
+                                'osascript', '-e',
+                                'tell application "System Events" to keystroke return'
+                            ], capture_output=True, timeout=2)
+                            await asyncio.sleep(0.3)
+                            logger.info("✓ URL pasted into IntelliJ and Enter pressed")
+
+                            # Step 4: NOW read the URL from stdin asynchronously
+                            logger.info("Step 4: Reading URL from stdin...")
+                            loop = asyncio.get_event_loop()
+                            new_url = await loop.run_in_executor(None, lambda: sys.stdin.readline().strip())
+                            if new_url:
+                                logger.info(f"✓ Got new URL from stdin: {new_url}")
+                                print(f"🔄 Switching to new URL: {new_url}")
+
+                            # Step 5: Switch back to Chrome
+                            logger.info("Step 5: Switching back to Chrome...")
+                            subprocess.run([
+                                'osascript', '-e',
+                                'tell application "Google Chrome" to activate'
+                            ], capture_output=True, timeout=2)
+                            await asyncio.sleep(0.3)
+
+                    except Exception as e:
+                        logger.error(f"Error in automated URL copy/paste: {e}")
+
+                    # Navigate to the new URL if we got one
+                    if new_url:
+                        logger.info(f"Navigating to new URL: {new_url}")
+                        try:
+                            await selector.navigate(new_url, wait_for_load=True)
+                            logger.info(f"✓ Navigated to {new_url}")
+                        except Exception as nav_error:
+                            logger.error(f"Error navigating: {nav_error}")
+                            continue
                     else:
-                        logger.info(f"✓ No more buttons found - form complete")
-                        break
-                
-                # If there's a final submit button, the agent should have clicked it
-                if final_submit_buttons:
-                    print(f"Found {len(final_submit_buttons)} final submit button(s). Form submission should be complete.")
-                    break
-                
-                # No buttons found, assume form is complete
-                print("No next or submit buttons found. Assuming form is complete.")
+                        # No URL from stdin, wait for browser navigation to complete
+                        logger.info("No URL from stdin, waiting for browser navigation...")
+                        await asyncio.sleep(1.0)
+
+                    # Continue to next iteration (will rescan the page)
+                    continue
+
+                # No next or submit buttons found
+                print("No next or submit buttons found. Form complete.")
                 break
-            
+
             if step >= max_steps:
                 all_errors.append(f"Reached maximum steps ({max_steps}). Form may have more steps.")
-            
+
             return {
                 "success": len(all_filled_fields) > 0 and len(all_failed_fields) == 0,
                 "filled_fields": all_filled_fields,
@@ -1322,4 +1076,3 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "steps_processed": step,
                 "output": f"Processed {step} form step(s)"
             }
-

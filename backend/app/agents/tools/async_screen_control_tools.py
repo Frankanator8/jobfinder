@@ -53,12 +53,6 @@ class FillFieldInput(BaseModel):
     field_type: str = Field(default="text", description="Type of field: text, email, textarea, select, etc.")
 
 
-class ScrollInput(BaseModel):
-    """Input for scrolling"""
-    clicks: int = Field(..., description="Number of scroll clicks (positive=down, negative=up). MUST be non-zero (at least 1 or -1).")
-    x: Optional[int] = Field(None, description="X coordinate to scroll at (optional)")
-    y: Optional[int] = Field(None, description="Y coordinate to scroll at (optional)")
-
 
 class SelectDropdownOptionInput(BaseModel):
     """Input for selecting a dropdown option"""
@@ -262,71 +256,6 @@ class GetScreenInfoTool(BaseTool):
         return result
 
 
-class ScrollTool(BaseTool):
-    """Tool to scroll mouse wheel"""
-    name = "scroll"
-    description = "Scroll mouse wheel ONLY if a field or button is NOT fully visible. DO NOT scroll if field is already fully visible. DO NOT use 0 clicks - that is invalid. Input: clicks (positive=down, negative=up, minimum 1 or -1), optional x,y coordinates to scroll at (recommended: use field center coordinates). Use 5-10 clicks for larger scrolls. Only scroll when Top Y < 0 (scroll up) or Bottom Y > screen height (scroll down). The tool will move mouse to the location first, then scroll."
-    args_schema = ScrollInput
-    
-    def _run(self, clicks: int, x: Optional[int] = None, y: Optional[int] = None) -> str:
-        """Execute the tool synchronously"""
-        try:
-            # Reject 0 clicks - makes no sense
-            if clicks == 0:
-                return "Error: Cannot scroll by 0 clicks. Use a positive number to scroll down or negative to scroll up (minimum 1 or -1)."
-            
-            # If coordinates provided, move mouse there first, then scroll
-            if x is not None and y is not None:
-                # Move mouse to the location first (helps with scrolling on some systems)
-                pyautogui.moveTo(x, y, duration=0.1)
-                import time
-                time.sleep(0.1)  # Small delay after moving
-                # Scroll at current mouse position (which is now at x, y)
-                pyautogui.scroll(clicks)
-            else:
-                # Scroll at center of screen (more reliable)
-                screen_width, screen_height = pyautogui.size()
-                center_x, center_y = screen_width // 2, screen_height // 2
-                pyautogui.moveTo(center_x, center_y, duration=0.1)
-                import time
-                time.sleep(0.1)  # Small delay after moving
-                pyautogui.scroll(clicks)
-            
-            direction = "down" if clicks > 0 else "up"
-            return f"Scrolled {abs(clicks)} clicks {direction}"
-        except Exception as e:
-            return f"Error scrolling: {str(e)}"
-    
-    async def _arun(self, clicks: int, x: Optional[int] = None, y: Optional[int] = None) -> str:
-        """Execute the tool asynchronously"""
-        # Reject 0 clicks - makes no sense
-        if clicks == 0:
-            return "Error: Cannot scroll by 0 clicks. Use a positive number to scroll down or negative to scroll up (minimum 1 or -1)."
-        
-        loop = asyncio.get_event_loop()
-        
-        try:
-            # If coordinates provided, move mouse there first, then scroll
-            if x is not None and y is not None:
-                # Move mouse to the location first
-                await loop.run_in_executor(None, lambda: pyautogui.moveTo(x, y, duration=0.1))
-                await asyncio.sleep(0.05)  # Reduced delay after moving
-                # Scroll at current mouse position (which is now at x, y)
-                await loop.run_in_executor(None, pyautogui.scroll, clicks)
-            else:
-                # Scroll at center of screen (more reliable)
-                screen_width, screen_height = await loop.run_in_executor(None, pyautogui.size)
-                center_x, center_y = screen_width // 2, screen_height // 2
-                await loop.run_in_executor(None, lambda: pyautogui.moveTo(center_x, center_y, duration=0.1))
-                await asyncio.sleep(0.05)  # Reduced delay after moving
-                await loop.run_in_executor(None, pyautogui.scroll, clicks)
-            
-            await asyncio.sleep(0.2)  # Reduced wait after scrolling
-            direction = "down" if clicks > 0 else "up"
-            return f"Scrolled {abs(clicks)} clicks {direction}"
-        except Exception as e:
-            return f"Error scrolling: {str(e)}"
-
 
 class MoveMouseToFixedTool(BaseTool):
     """Tool to move mouse to hardcoded position (410, 105)"""
@@ -511,12 +440,10 @@ class SelectDropdownOptionTool(BaseTool):
 def get_async_screen_control_tools() -> list[BaseTool]:
     """Get all async screen control tools"""
     return [
-        GetScreenInfoTool(),
         MoveMouseTool(),
         ClickMouseTool(),
         TypeTextTool(),
         PressKeyTool(),
-        ScrollTool(),
         FillFieldTool(),
         MoveMouseToFixedTool(),
         CopyTool(),

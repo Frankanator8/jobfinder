@@ -146,12 +146,12 @@ FIELD_KEYWORDS = {
     FieldType.FILE: ["resume", "cv", "upload", "file", "attachment", "document"],
     FieldType.URL: ["linkedin", "portfolio", "website", "github", "url", "link"],
     FieldType.DATE: ["date", "start", "available", "availability"],
-    FieldType.SUBMIT: ["submit", "send", "apply", "next", "continue", "proceed", "finish", "complete", "register"],
+    FieldType.SUBMIT: ["review", "submit", "send", "apply", "next", "continue", "proceed", "finish", "complete", "register"],
     FieldType.BUTTON: ["button", "btn", "click", "action"],
 }
 
 # Keywords that indicate "next-like" buttons (multi-step navigation, not final submission)
-NEXT_BUTTON_KEYWORDS = ["next", "continue", "proceed", "forward", "step", "page"]
+NEXT_BUTTON_KEYWORDS = ["review", "next", "continue", "proceed", "forward", "step", "page"]
 
 # Keywords that indicate final submission buttons
 FINAL_SUBMIT_KEYWORDS = ["submit", "send", "apply", "finish", "complete", "send application", "submit application", "apply now"]
