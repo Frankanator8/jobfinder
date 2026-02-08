@@ -67,9 +67,6 @@ pyee==13.0.0
 PyGetWindow==0.0.9
 PyJWT==2.11.0
 PyMsgBox==2.0.1
-pyobjc-core==12.1
-pyobjc-framework-Cocoa==12.1
-pyobjc-framework-Quartz==12.1
 pyperclip==1.11.0
 PyRect==0.2.0
 PyScreeze==1.0.1
@@ -83,7 +80,6 @@ regex==2024.11.6
 requests==2.32.5
 requests-toolbelt==1.0.0
 rsa==4.9.1
-rubicon-objc==0.5.3
 six==1.17.0
 sniffio==1.3.1
 soupsieve==2.8.3
@@ -98,7 +94,6 @@ typing_extensions==4.15.0
 tzdata==2025.3
 urllib3==2.6.3
 uvicorn==0.40.0
-uvloop==0.22.1
 watchfiles==1.1.1
 websockets==16.0
 yarl==1.22.0

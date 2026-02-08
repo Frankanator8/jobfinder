@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/job.dart';
 import '../models/user_profile.dart';
+import '../services/job_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/swipeable_card_stack.dart';
 import 'user_info_screen.dart';
@@ -25,7 +26,14 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
   List<Job> _jobs = [];
   List<Job> _likedJobs = [];
   List<Job> _passedJobs = [];
+  final Set<String> _seenJobIds = {};
   UserProfile? _userProfile;
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _allJobsExhausted = false;
+  String? _errorMessage;
+  int _offset = 0;
+  static const int _batchSize = 10;
   final GlobalKey<SwipeableCardStackState> _cardStackKey =
       GlobalKey<SwipeableCardStackState>();
 
@@ -36,83 +44,68 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     _loadJobs();
   }
 
-  void _loadJobs() {
-    // Sample job data
+  Future<void> _loadJobs() async {
     setState(() {
-      _jobs = [
-        Job(
-          id: '1',
-          title: 'Senior Flutter Developer',
-          company: 'TechCorp',
-          location: 'San Francisco, CA',
-          salary: '\$120k - \$150k',
-          description:
-              'Join our innovative team to build cutting-edge mobile applications. We\'re looking for an experienced Flutter developer to lead our mobile development efforts.',
-          requirements: ['Flutter', 'Dart', 'REST APIs', 'Git'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '2',
-          title: 'Mobile App Designer',
-          company: 'DesignStudio',
-          location: 'New York, NY',
-          salary: '\$90k - \$110k',
-          description:
-              'Create beautiful and intuitive user experiences for our mobile applications. Work closely with developers to bring designs to life.',
-          requirements: ['UI/UX', 'Figma', 'Prototyping', 'Design Systems'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '3',
-          title: 'Backend Engineer',
-          company: 'CloudTech',
-          location: 'Remote',
-          salary: '\$100k - \$130k',
-          description:
-              'Build scalable backend systems using modern technologies. Work on microservices architecture and cloud infrastructure.',
-          requirements: ['Node.js', 'Python', 'AWS', 'Docker'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '4',
-          title: 'Product Manager',
-          company: 'StartupXYZ',
-          location: 'Austin, TX',
-          salary: '\$110k - \$140k',
-          description:
-              'Lead product strategy and work with cross-functional teams to deliver amazing products. Drive product vision and roadmap.',
-          requirements: [
-            'Product Strategy',
-            'Agile',
-            'Analytics',
-            'Leadership',
-          ],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '5',
-          title: 'DevOps Engineer',
-          company: 'InfraSolutions',
-          location: 'Seattle, WA',
-          salary: '\$115k - \$145k',
-          description:
-              'Manage and optimize our cloud infrastructure. Implement CI/CD pipelines and ensure system reliability and scalability.',
-          requirements: ['Kubernetes', 'Terraform', 'CI/CD', 'Monitoring'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '6',
-          title: 'Data Scientist',
-          company: 'DataInsights',
-          location: 'Boston, MA',
-          salary: '\$125k - \$160k',
-          description:
-              'Analyze complex datasets and build machine learning models. Help drive data-driven decision making across the organization.',
-          requirements: ['Python', 'ML', 'SQL', 'Statistics'],
-          type: 'Full-time',
-        ),
-      ];
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final jobs = await JobService.fetchJobs(limit: _batchSize, offset: 0);
+      final newJobs = jobs.where((j) => !_seenJobIds.contains(j.id)).toList();
+      setState(() {
+        _jobs = newJobs;
+        _seenJobIds.addAll(newJobs.map((j) => j.id));
+        _offset = jobs.length;
+        _allJobsExhausted = jobs.isEmpty;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Could not load jobs. Is the backend running?';
+      });
+    }
+  }
+
+  Future<void> _loadMoreJobs() async {
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final moreJobs = await JobService.fetchJobs(limit: _batchSize, offset: _offset);
+      final newJobs = moreJobs.where((j) => !_seenJobIds.contains(j.id)).toList();
+      setState(() {
+        _offset += moreJobs.length;
+        if (moreJobs.isEmpty) {
+          _allJobsExhausted = true;
+        } else {
+          _jobs = newJobs;
+          _seenJobIds.addAll(newJobs.map((j) => j.id));
+          // If every returned job was already seen, we're also exhausted
+          if (newJobs.isEmpty) _allJobsExhausted = true;
+        }
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingMore = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to load more jobs'),
+            backgroundColor: Colors.red.shade400,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    }
   }
 
   void _onSwipe(Job job, bool isLiked) {
@@ -420,18 +413,54 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: Column(
-        children: [
-          // Card stack area
-          Expanded(
-            child: SwipeableCardStack(
-              key: _cardStackKey,
-              jobs: _jobs,
-              onSwipe: _onSwipe,
-            ),
-          ),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.cloud_off_rounded,
+                          size: 64,
+                          color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _loadJobs,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : Column(
+                  children: [
+                    // Card stack area
+                    Expanded(
+                      child: SwipeableCardStack(
+                        key: _cardStackKey,
+                        jobs: _jobs,
+                        onSwipe: _onSwipe,
+                        onLoadMore: _allJobsExhausted ? null : _loadMoreJobs,
+                        isLoadingMore: _isLoadingMore,
+                        allJobsExhausted: _allJobsExhausted,
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 }
