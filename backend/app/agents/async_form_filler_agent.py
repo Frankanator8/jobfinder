@@ -583,33 +583,83 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             
             await selector.navigate(url)
             initial_loaded_url = selector.page.url
+            initial_title = await selector.page.title()
+            initial_hash = initial_loaded_url.split('#')[1] if '#' in initial_loaded_url else None
             logger.info(f"After navigation, page URL: {initial_loaded_url}")
+            logger.info(f"Page title: {initial_title}")
+            logger.info(f"Hash fragment: {initial_hash or 'None'}")
             
             previous_url = initial_loaded_url  # Track URL across steps
+            previous_title = initial_title
+            previous_hash = initial_hash
             
             while step < max_steps:
                 step += 1
                 current_url = selector.page.url
+                current_hash = current_url.split('#')[1] if '#' in current_url else None
                 
-                # Check if URL changed from previous step
+                try:
+                    current_title = await selector.page.title()
+                except Exception:
+                    current_title = previous_title
+                
+                # Check if page changed from previous step (multiple methods)
+                page_changed = False
+                change_methods = []
+                
                 if previous_url is not None:
+                    # Method 1: URL change
                     if current_url != previous_url:
+                        page_changed = True
+                        change_methods.append("URL")
                         logger.info(f"\n{'='*60}")
-                        logger.info(f"✓ URL CHANGED DETECTED!")
+                        logger.info(f"✓ PAGE CHANGED DETECTED (via URL)!")
                         logger.info(f"  Previous URL: {previous_url}")
                         logger.info(f"  New URL: {current_url}")
                         logger.info(f"{'='*60}")
-                        print(f"\n✓ URL Changed: {previous_url} → {current_url}")
-                    else:
+                        print(f"\n✓ Page Changed (URL): {previous_url} → {current_url}")
+                    
+                    # Method 2: Hash fragment change
+                    elif current_hash != previous_hash:
+                        page_changed = True
+                        change_methods.append("Hash")
                         logger.info(f"\n{'='*60}")
-                        logger.info(f"URL unchanged (may be same page or SPA navigation)")
+                        logger.info(f"✓ PAGE CHANGED DETECTED (via Hash)!")
+                        logger.info(f"  Previous hash: {previous_hash or 'None'}")
+                        logger.info(f"  New hash: {current_hash}")
+                        logger.info(f"{'='*60}")
+                        print(f"\n✓ Page Changed (Hash)")
+                    
+                    # Method 3: Title change
+                    elif current_title != previous_title:
+                        page_changed = True
+                        change_methods.append("Title")
+                        logger.info(f"\n{'='*60}")
+                        logger.info(f"✓ PAGE CHANGED DETECTED (via Title)!")
+                        logger.info(f"  Previous title: {previous_title}")
+                        logger.info(f"  New title: {current_title}")
+                        logger.info(f"{'='*60}")
+                        print(f"\n✓ Page Changed (Title): {previous_title} → {current_title}")
+                    
+                    if not page_changed:
+                        logger.info(f"\n{'='*60}")
+                        logger.info(f"Page state unchanged (may be same page or SPA navigation)")
                         logger.info(f"  Current URL: {current_url}")
+                        logger.info(f"  Current title: {current_title}")
+                        logger.info(f"  Current hash: {current_hash or 'None'}")
                         logger.info(f"{'='*60}")
                 else:
                     logger.info(f"\n{'='*60}")
                     logger.info(f"INITIAL PAGE LOAD")
                     logger.info(f"  URL: {current_url}")
+                    logger.info(f"  Title: {current_title}")
+                    logger.info(f"  Hash: {current_hash or 'None'}")
                     logger.info(f"{'='*60}")
+                
+                # Update tracking variables
+                previous_url = current_url
+                previous_title = current_title
+                previous_hash = current_hash
                 
                 print(f"Processing form step {step}...")
                 logger.info(f"\n{'='*60}")
@@ -708,61 +758,204 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     print(f"Found {len(next_buttons)} next button(s). Agent should click it to proceed to next step...")
                     logger.info(f"Next button detected - waiting for agent to click it...")
                     
-                    # Store current URL before navigation
+                    # Store current page state before navigation (multiple detection methods)
                     previous_url = selector.page.url
+                    previous_title = await selector.page.title()
+                    previous_hash = selector.page.url.split('#')[1] if '#' in selector.page.url else None
+                    
+                    # Get initial DOM fingerprint (hash of page content)
+                    try:
+                        previous_dom_hash = await selector.page.evaluate("""
+                            () => {
+                                const body = document.body;
+                                if (!body) return '';
+                                // Create a simple hash of visible content
+                                const text = body.innerText || body.textContent || '';
+                                const formCount = document.querySelectorAll('form, input, select, textarea').length;
+                                return text.substring(0, 100) + '|' + formCount;
+                            }
+                        """)
+                    except Exception as e:
+                        logger.warning(f"Could not get initial DOM hash: {e}")
+                        previous_dom_hash = None
+                    
                     logger.info(f"\n{'='*60}")
                     logger.info(f"NEXT BUTTON CLICKED - WAITING FOR NAVIGATION")
                     logger.info(f"Current URL before next click: {previous_url}")
+                    logger.info(f"Current title before next click: {previous_title}")
+                    logger.info(f"Current hash before next click: {previous_hash or 'None'}")
                     logger.info(f"{'='*60}")
                     
                     # The agent execution should have clicked the next button
                     # Wait a bit for the click to register
                     await asyncio.sleep(2)
                     
-                    # Wait for page navigation - monitor URL changes
+                    # Wait for page navigation - monitor multiple indicators
                     logger.info("Waiting for page navigation after next button click...")
-                    url_changed = False
+                    page_changed = False
+                    change_detected_by = []
                     max_wait_time = 15  # Maximum seconds to wait
                     poll_interval = 0.5  # Check every 0.5 seconds
                     elapsed_time = 0
+                    
+                    # Note: Navigation event detection would need to be set up BEFORE the click
+                    # Since the agent already clicked, we'll rely on polling methods instead
+                    navigation_detected = False  # Tracked for logging purposes
                     
                     while elapsed_time < max_wait_time:
                         await asyncio.sleep(poll_interval)
                         elapsed_time += poll_interval
                         
-                        # Check current URL
+                        # Method 1: Check URL change
                         current_url = selector.page.url
-                        
                         if current_url != previous_url:
-                            url_changed = True
+                            page_changed = True
+                            change_detected_by.append("URL")
                             logger.info(f"\n{'='*60}")
-                            logger.info(f"✓✓✓ URL CHANGED DETECTED! ✓✓✓")
+                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via URL)! ✓✓✓")
                             logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
                             logger.info(f"  Previous URL: {previous_url}")
                             logger.info(f"  New URL: {current_url}")
                             logger.info(f"{'='*60}")
-                            print(f"\n✓✓✓ URL Changed after {elapsed_time:.1f}s: {previous_url} → {current_url}")
+                            print(f"\n✓✓✓ Page Changed (URL) after {elapsed_time:.1f}s: {previous_url} → {current_url}")
                             break
-                    
-                    if not url_changed:
-                        # Final check
-                        current_url = selector.page.url
-                        if current_url != previous_url:
-                            url_changed = True
+                        
+                        # Method 2: Check hash fragment change (for SPAs with hash routing)
+                        current_hash = current_url.split('#')[1] if '#' in current_url else None
+                        if current_hash != previous_hash:
+                            page_changed = True
+                            change_detected_by.append("Hash")
                             logger.info(f"\n{'='*60}")
-                            logger.info(f"✓✓✓ URL CHANGED DETECTED (after {max_wait_time}s wait)! ✓✓✓")
+                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via Hash)! ✓✓✓")
+                            logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
+                            logger.info(f"  Previous hash: {previous_hash or 'None'}")
+                            logger.info(f"  New hash: {current_hash}")
+                            logger.info(f"{'='*60}")
+                            print(f"\n✓✓✓ Page Changed (Hash) after {elapsed_time:.1f}s")
+                            break
+                        
+                        # Method 3: Check page title change
+                        try:
+                            current_title = await selector.page.title()
+                            if current_title != previous_title:
+                                page_changed = True
+                                change_detected_by.append("Title")
+                                logger.info(f"\n{'='*60}")
+                                logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via Title)! ✓✓✓")
+                                logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
+                                logger.info(f"  Previous title: {previous_title}")
+                                logger.info(f"  New title: {current_title}")
+                                logger.info(f"{'='*60}")
+                                print(f"\n✓✓✓ Page Changed (Title) after {elapsed_time:.1f}s: {previous_title} → {current_title}")
+                                break
+                        except Exception as e:
+                            logger.debug(f"Could not check title: {e}")
+                        
+                        # Method 4: Check DOM content fingerprint (for SPAs without URL/title changes)
+                        if previous_dom_hash is not None:
+                            try:
+                                current_dom_hash = await selector.page.evaluate("""
+                                    () => {
+                                        const body = document.body;
+                                        if (!body) return '';
+                                        const text = body.innerText || body.textContent || '';
+                                        const formCount = document.querySelectorAll('form, input, select, textarea').length;
+                                        return text.substring(0, 100) + '|' + formCount;
+                                    }
+                                """)
+                                if current_dom_hash != previous_dom_hash:
+                                    page_changed = True
+                                    change_detected_by.append("DOM Content")
+                                    logger.info(f"\n{'='*60}")
+                                    logger.info(f"✓✓✓ PAGE CHANGED DETECTED (via DOM Content)! ✓✓✓")
+                                    logger.info(f"  Time to change: {elapsed_time:.1f} seconds")
+                                    logger.info(f"  Previous DOM hash: {previous_dom_hash[:50]}...")
+                                    logger.info(f"  New DOM hash: {current_dom_hash[:50]}...")
+                                    logger.info(f"{'='*60}")
+                                    print(f"\n✓✓✓ Page Changed (DOM Content) after {elapsed_time:.1f}s")
+                                    break
+                            except Exception as e:
+                                logger.debug(f"Could not check DOM hash: {e}")
+                    
+                    # Final check with all methods
+                    if not page_changed:
+                        current_url = selector.page.url
+                        current_hash = current_url.split('#')[1] if '#' in current_url else None
+                        
+                        # Final URL check
+                        if current_url != previous_url:
+                            page_changed = True
+                            change_detected_by.append("URL (final check)")
+                            logger.info(f"\n{'='*60}")
+                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (URL - final check)! ✓✓✓")
                             logger.info(f"  Previous URL: {previous_url}")
                             logger.info(f"  New URL: {current_url}")
                             logger.info(f"{'='*60}")
-                            print(f"\n✓✓✓ URL Changed (detected after {max_wait_time}s): {previous_url} → {current_url}")
-                        else:
+                        # Final hash check
+                        elif current_hash != previous_hash:
+                            page_changed = True
+                            change_detected_by.append("Hash (final check)")
                             logger.info(f"\n{'='*60}")
-                            logger.info(f"URL unchanged after {max_wait_time}s wait")
-                            logger.info(f"  This may indicate SPA (Single Page App) navigation")
-                            logger.info(f"  Previous URL: {previous_url}")
-                            logger.info(f"  Current URL: {current_url}")
-                            logger.info(f"  (Page content may have changed without URL change)")
+                            logger.info(f"✓✓✓ PAGE CHANGED DETECTED (Hash - final check)! ✓✓✓")
+                            logger.info(f"  Previous hash: {previous_hash or 'None'}")
+                            logger.info(f"  New hash: {current_hash}")
                             logger.info(f"{'='*60}")
+                        # Final title check
+                        else:
+                            try:
+                                current_title = await selector.page.title()
+                                if current_title != previous_title:
+                                    page_changed = True
+                                    change_detected_by.append("Title (final check)")
+                                    logger.info(f"\n{'='*60}")
+                                    logger.info(f"✓✓✓ PAGE CHANGED DETECTED (Title - final check)! ✓✓✓")
+                                    logger.info(f"  Previous title: {previous_title}")
+                                    logger.info(f"  New title: {current_title}")
+                                    logger.info(f"{'='*60}")
+                            except Exception:
+                                pass
+                        
+                        if not page_changed:
+                            # Check DOM content one more time
+                            if previous_dom_hash is not None:
+                                try:
+                                    current_dom_hash = await selector.page.evaluate("""
+                                        () => {
+                                            const body = document.body;
+                                            if (!body) return '';
+                                            const text = body.innerText || body.textContent || '';
+                                            const formCount = document.querySelectorAll('form, input, select, textarea').length;
+                                            return text.substring(0, 100) + '|' + formCount;
+                                        }
+                                    """)
+                                    if current_dom_hash != previous_dom_hash:
+                                        page_changed = True
+                                        change_detected_by.append("DOM Content (final check)")
+                                        logger.info(f"\n{'='*60}")
+                                        logger.info(f"✓✓✓ PAGE CHANGED DETECTED (DOM Content - final check)! ✓✓✓")
+                                        logger.info(f"{'='*60}")
+                                except Exception:
+                                    pass
+                            
+                            if not page_changed:
+                                logger.info(f"\n{'='*60}")
+                                logger.info(f"⚠️  No page change detected after {max_wait_time}s wait")
+                                logger.info(f"  This may indicate:")
+                                logger.info(f"    - SPA (Single Page App) with no URL/title/DOM changes")
+                                logger.info(f"    - Page is still loading")
+                                logger.info(f"    - Navigation didn't occur")
+                                logger.info(f"  Previous URL: {previous_url}")
+                                logger.info(f"  Current URL: {current_url}")
+                                logger.info(f"  Previous title: {previous_title}")
+                                logger.info(f"  Navigation event detected: {navigation_detected}")
+                                logger.info(f"  (Will proceed anyway - fields will be re-detected)")
+                                logger.info(f"{'='*60}")
+                                # Still proceed - fields will be re-detected and may be different
+                                page_changed = True  # Assume change occurred even if not detected
+                                change_detected_by.append("Assumed (no detection)")
+                    
+                    if page_changed and change_detected_by:
+                        logger.info(f"Page change detected by: {', '.join(change_detected_by)}")
                     
                     # Wait for page to be fully loaded
                     try:
@@ -774,13 +967,22 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         logger.warning(f"Page load wait timeout: {e}")
                         await asyncio.sleep(3)  # Fallback wait
                     
-                    # Get final URL
+                    # Get final page state (multiple methods)
                     final_url = selector.page.url
+                    try:
+                        final_title = await selector.page.title()
+                    except Exception:
+                        final_title = previous_title
+                    final_hash = final_url.split('#')[1] if '#' in final_url else None
+                    
                     logger.info(f"\n{'='*60}")
                     logger.info(f"NAVIGATION COMPLETE")
                     logger.info(f"Final URL after navigation: {final_url}")
+                    logger.info(f"Final title: {final_title}")
+                    logger.info(f"Final hash: {final_hash or 'None'}")
+                    logger.info(f"Change detected by: {', '.join(change_detected_by) if change_detected_by else 'Multiple methods'}")
                     logger.info(f"{'='*60}")
-                    print(f"Navigated to: {final_url}")
+                    print(f"Navigated to: {final_url} (Title: {final_title})")
                     
                     # IMPORTANT: Re-run divselection to get fresh fields from the new page
                     logger.info(f"\n{'='*60}")
@@ -789,8 +991,10 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     logger.info(f"This will detect all fields on the new page and feed them to the agent")
                     logger.info(f"{'='*60}")
                     
-                    # Update previous_url for next iteration comparison
+                    # Update tracking variables for next iteration comparison
                     previous_url = final_url
+                    previous_title = final_title
+                    previous_hash = final_hash
                     
                     # Continue to next iteration - this will call find_fields() again on the new page
                     # The fields will be fresh from the new URL/page
