@@ -25,6 +25,15 @@ except ImportError as e:
     AUTO_FILL_ERROR = str(e)
     auto_fill = None
 
+# Try to import async_form_filler, but make it optional
+try:
+    from app.routers import async_form_filler
+    ASYNC_FORM_FILLER_AVAILABLE = True
+except ImportError as e:
+    ASYNC_FORM_FILLER_AVAILABLE = False
+    ASYNC_FORM_FILLER_ERROR = str(e)
+    async_form_filler = None
+
 app = FastAPI(
     title="DF26 Backend",
     description="FastAPI backend service with MCP form filling agent",
@@ -62,7 +71,27 @@ else:
             "message": "Auto-fill is not available. Check LANGCHAIN_FIX.md for troubleshooting."
         }
 
+# Only include async_form_filler router if it's available
+if ASYNC_FORM_FILLER_AVAILABLE:
+    app.include_router(async_form_filler.router)
+else:
+    # Add a warning endpoint
+    @app.get("/async-form-filler/status")
+    async def async_form_filler_status():
+        return {
+            "available": False,
+            "error": ASYNC_FORM_FILLER_ERROR,
+            "message": "Async form filler agent is not available."
+        }
+
 
 @app.get("/")
 async def root() -> dict[str, str]:
     return {"message": "Welcome to DF26 Backend"}
+
+
+@app.get("/apply")
+async def apply(application_id, applicant_id):
+    raw_user_data = {} # TODO: API Call
+    user_data = {} # TODO: Process raw_user_data
+
