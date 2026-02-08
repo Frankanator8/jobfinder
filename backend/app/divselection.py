@@ -120,6 +120,7 @@ class FormField:
     bounding_box: dict = field(default_factory=dict)
     is_next_button: bool = False  # True if this is a "next/continue" button (multi-step)
     is_final_submit: bool = False  # True if this is a final submit button
+    options: list = field(default_factory=list)  # For select/dropdown elements
 
     def to_dict(self) -> dict:
         return {
@@ -132,7 +133,8 @@ class FormField:
             "selector": self.selector,
             "bounding_box": self.bounding_box,
             "is_next_button": self.is_next_button,
-            "is_final_submit": self.is_final_submit
+            "is_final_submit": self.is_final_submit,
+            "options": self.options
         }
 
 
@@ -405,6 +407,52 @@ class DivSelector:
         """)
         return label or ""
 
+    async def _get_select_options(self, element: ElementHandle) -> list:
+        """
+        Extract options from a select/dropdown element.
+
+        Args:
+            element: The select element
+
+        Returns:
+            List of option dictionaries with value and text
+        """
+        options = await element.evaluate("""
+            el => {
+                const options = [];
+                
+                // Handle native <select> elements
+                if (el.tagName.toLowerCase() === 'select') {
+                    const optionElements = el.options || el.querySelectorAll('option');
+                    for (let i = 0; i < optionElements.length; i++) {
+                        const opt = optionElements[i];
+                        options.push({
+                            value: opt.value || '',
+                            text: opt.textContent.trim() || opt.text || '',
+                            selected: opt.selected || false,
+                            disabled: opt.disabled || false
+                        });
+                    }
+                }
+                
+                // Also check for child <option> elements (fallback)
+                if (options.length === 0) {
+                    const optionElements = el.querySelectorAll('option');
+                    for (const opt of optionElements) {
+                        options.push({
+                            value: opt.value || '',
+                            text: opt.textContent.trim() || '',
+                            selected: opt.selected || false,
+                            disabled: opt.disabled || false
+                        });
+                    }
+                }
+                
+                return options;
+            }
+        """)
+        return options or []
+
     async def find_fields(self) -> list[FormField]:
         """
         Find all relevant form fields on the current page.
@@ -484,6 +532,11 @@ class DivSelector:
                     # Classify button intent (next vs final submit)
                     is_next_button, is_final_submit = self._classify_button_intent(label, element_name, field_type)
 
+                    # Extract options for select/dropdown elements
+                    options = []
+                    if field_type == FieldType.SELECT:
+                        options = await self._get_select_options(element)
+
                     form_field = FormField(
                         element_id=element_id or f"field_{i}",
                         field_type=field_type,
@@ -499,7 +552,8 @@ class DivSelector:
                             "height": box["height"]-10
                         },
                         is_next_button=is_next_button,
-                        is_final_submit=is_final_submit
+                        is_final_submit=is_final_submit,
+                        options=options
                     )
 
                     self.detected_fields.append(form_field)
@@ -635,6 +689,7 @@ class DivSelector:
         print("Taking screenshot...")
         screenshot_path = await self.take_screenshot()
         print(f"Screenshot saved to: {screenshot_path}")
+
 
         return {
             "source": source,
