@@ -50,7 +50,6 @@ class JobCard extends StatelessWidget {
 
   Widget _buildLogo(Color companyColor) {
     if (job.logo == null || job.logo!.isEmpty) {
-      debugPrint('[JobCard] No logo URL for ${job.company}: logo=${job.logo}');
       return Icon(
         Icons.business_outlined,
         color: companyColor,
@@ -59,8 +58,6 @@ class JobCard extends StatelessWidget {
     }
 
     final logoUrl = job.logo!;
-    debugPrint('[JobCard] Attempting to load logo for ${job.company}');
-    debugPrint('[JobCard] URL: $logoUrl');
 
     return Image.network(
       logoUrl,
@@ -69,13 +66,8 @@ class JobCard extends StatelessWidget {
       fit: BoxFit.cover,
       loadingBuilder: (context, child, loadingProgress) {
         if (loadingProgress == null) {
-          debugPrint('[JobCard] ✓ Logo loaded successfully for ${job.company}');
           return child;
         }
-        final progress = loadingProgress.expectedTotalBytes != null
-            ? (loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! * 100).toStringAsFixed(0)
-            : '?';
-        debugPrint('[JobCard] Loading ${job.company} logo: $progress%');
         return Center(
           child: CircularProgressIndicator(
             strokeWidth: 2,
@@ -86,16 +78,6 @@ class JobCard extends StatelessWidget {
         );
       },
       errorBuilder: (context, error, stackTrace) {
-        debugPrint('[JobCard] ✗ Logo FAILED for ${job.company}');
-        debugPrint('[JobCard]   URL: $logoUrl');
-        debugPrint('[JobCard]   Error type: ${error.runtimeType}');
-        debugPrint('[JobCard]   Error: $error');
-        if (error.toString().contains('CORS') ||
-            error.toString().contains('XMLHttpRequest') ||
-            error.toString().contains('NetworkError')) {
-          debugPrint('[JobCard]   ⚠️  This appears to be a CORS error. Try running with:');
-          debugPrint('[JobCard]       flutter run -d chrome --web-browser-flag "--disable-web-security"');
-        }
         return Icon(
           Icons.business_outlined,
           color: companyColor,

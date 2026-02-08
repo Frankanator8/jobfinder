@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/job.dart';
 import '../models/user_profile.dart';
@@ -37,11 +38,94 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
   final GlobalKey<SwipeableCardStackState> _cardStackKey =
       GlobalKey<SwipeableCardStackState>();
 
+  // Queue tracking
+  final Map<String, QueueItem> _trackedQueueItems = {};
+  final Map<String, String> _jobTitlesForQueue = {}; // docId -> job title
+  Timer? _queueStatusTimer;
+  StreamSubscription<List<QueueItem>>? _queueSubscription;
+
   @override
   void initState() {
     super.initState();
     _userProfile = widget.userProfile;
     _loadJobs();
+    _setupQueueTracking();
+  }
+
+  @override
+  void dispose() {
+    _queueStatusTimer?.cancel();
+    _queueSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _setupQueueTracking() {
+    final currentUser = AuthService().currentUser;
+    if (currentUser != null) {
+      debugPrint('[Queue] Setting up queue tracking for user: ${currentUser.uid}');
+      // Use Firestore stream for real-time updates
+      _queueSubscription = QueueService.streamQueueItemsForUser(currentUser.uid)
+          .listen((items) {
+        debugPrint('[Queue] Received ${items.length} queue items from stream');
+        setState(() {
+          for (final item in items) {
+            final oldItem = _trackedQueueItems[item.docId];
+            _trackedQueueItems[item.docId] = item;
+
+            // Log status changes
+            if (oldItem == null) {
+              debugPrint('[Queue] New item detected: ${item.docId} (status: ${item.status})');
+            } else if (oldItem.status != item.status) {
+              debugPrint('[Queue] Status changed for ${item.docId}: ${oldItem.status} → ${item.status}');
+            }
+
+            // Check if status changed to terminal state
+            if (oldItem != null && !oldItem.isTerminal && item.isTerminal) {
+              // Status just changed to completed or failed
+              _showQueueStatusNotification(item);
+              // Delete the entry from the queue after a short delay to allow UI to show final state
+              _deleteQueueItemAfterDelay(item.docId);
+            }
+          }
+
+          // Remove items that are no longer in the queue
+          _trackedQueueItems.removeWhere((docId, item) =>
+              !items.any((i) => i.docId == docId));
+        });
+      });
+    } else {
+      debugPrint('[Queue] No current user, skipping queue tracking setup');
+    }
+  }
+
+  void _deleteQueueItemAfterDelay(String docId) {
+    final jobTitle = _jobTitlesForQueue[docId] ?? 'Unknown job';
+    debugPrint('[Queue] Scheduling deletion for $docId ($jobTitle) in 3 seconds...');
+    // Wait 3 seconds to show the final status, then delete
+    Future.delayed(const Duration(seconds: 3), () async {
+      try {
+        debugPrint('[Queue] Deleting queue item: $docId ($jobTitle)');
+        await QueueService.removeFromQueueByDocId(docId);
+        debugPrint('[Queue] ✓ Successfully deleted queue item: $docId');
+        // Clean up local tracking
+        setState(() {
+          _trackedQueueItems.remove(docId);
+          _jobTitlesForQueue.remove(docId);
+        });
+        debugPrint('[Queue] Cleaned up local tracking for: $docId');
+      } catch (e) {
+        debugPrint('[Queue] ✗ Failed to delete queue item $docId: $e');
+      }
+    });
+  }
+
+  void _showQueueStatusNotification(QueueItem item) {
+    final jobTitle = _jobTitlesForQueue[item.docId] ?? 'Unknown job';
+    if (item.isCompleted) {
+      debugPrint('[Queue] ✓ Application COMPLETED: ${item.docId} ($jobTitle)');
+    } else if (item.isFailed) {
+      debugPrint('[Queue] ✗ Application FAILED: ${item.docId} ($jobTitle) - Error: ${item.error}');
+    }
   }
 
   void _loadJobs() async {
@@ -117,11 +201,13 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
       final currentUser = AuthService().currentUser;
       if (currentUser != null) {
         try {
-          await QueueService.addToQueue(
+          final docId = await QueueService.addToQueue(
             applicationId: job.id,
             applicantId: currentUser.uid,
           );
-          debugPrint('[Queue] Added job ${job.id} to queue for user ${currentUser.uid}');
+          // Track the job title for this queue item
+          _jobTitlesForQueue[docId] = '${job.title} at ${job.company}';
+          debugPrint('[Queue] Added job ${job.id} to queue for user ${currentUser.uid}, docId: $docId');
         } catch (e) {
           debugPrint('[Queue] Failed to add to queue: $e');
         }
@@ -129,36 +215,6 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
       // Save job ID to user's saved_jobs in Firestore
       widget.onJobSaved?.call(job.id);
     }
-
-    // Show feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isLiked ? Icons.favorite_rounded : Icons.check_circle_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                isLiked
-                    ? 'Saved: ${job.title} at ${job.company}'
-                    : 'Passed: ${job.title}',
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ),
-          ],
-        ),
-        duration: const Duration(seconds: 2),
-        backgroundColor:
-            isLiked ? const Color(0xFF10B981) : const Color(0xFF6B7280),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
   }
 
   @override
@@ -334,7 +390,7 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                                             decoration: BoxDecoration(
                                               color: const Color(
                                                 0xFF6366F1,
-                                              ).withOpacity(0.1),
+                                              ).withValues(alpha: 0.1),
                                               borderRadius:
                                                   BorderRadius.circular(10),
                                             ),
@@ -472,44 +528,161 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 48,
-                        color: Colors.red.shade400,
+      body: Stack(
+        children: [
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 48,
+                            color: Colors.red.shade400,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _errorMessage!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _loadJobs,
+                            child: const Text('Retry'),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadJobs,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : Column(
-                  children: [
-                    // Card stack area
-                    Expanded(
-                      child: SwipeableCardStack(
-                        key: _cardStackKey,
-                        jobs: _jobs,
-                        onSwipe: _onSwipe,
-                      ),
+                    )
+                  : Column(
+                      children: [
+                        // Card stack area
+                        Expanded(
+                          child: SwipeableCardStack(
+                            key: _cardStackKey,
+                            jobs: _jobs,
+                            onSwipe: _onSwipe,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+          // Queue status notification overlay
+          _buildQueueStatusOverlay(isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQueueStatusOverlay(bool isDark) {
+    // Show all tracked queue items including terminal states
+    final activeItems = _trackedQueueItems.values.toList();
+
+    if (activeItems.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Positioned(
+      left: 16,
+      bottom: 16,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: activeItems.map((item) => _buildQueueItemCard(item, isDark)).toList(),
+      ),
+    );
+  }
+
+  Widget _buildQueueItemCard(QueueItem item, bool isDark) {
+    final jobTitle = _jobTitlesForQueue[item.docId] ?? 'Job Application';
+
+    IconData icon;
+    Color color;
+    String statusText;
+
+    if (item.isProcessing) {
+      icon = Icons.hourglass_empty;
+      color = const Color(0xFF4285F4); // Blue
+      statusText = 'Processing...';
+    } else if (item.isCompleted) {
+      icon = Icons.check_circle;
+      color = const Color(0xFF10B981); // Green
+      statusText = 'Completed';
+    } else if (item.isFailed) {
+      icon = Icons.error;
+      color = const Color(0xFFEF4444); // Red
+      statusText = 'Failed';
+    } else {
+      // pending
+      icon = Icons.schedule;
+      color = const Color(0xFFF59E0B); // Amber
+      statusText = 'In Queue';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      constraints: const BoxConstraints(maxWidth: 280),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF303134) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(
+          color: isDark ? Colors.grey.shade700 : Colors.grey.shade200,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (item.isPending || item.isProcessing)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            )
+          else
+            Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  jobTitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: color,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
