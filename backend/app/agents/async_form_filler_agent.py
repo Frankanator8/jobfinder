@@ -45,12 +45,12 @@ class AsyncFormFillerAgent:
     Async agent that fills out form fields using bounding boxes from divselection.py.
     Only uses mouse clicks and keyboard typing - no screenshots.
     """
-    
+
     def __init__(
-        self,
-        model_name: str = "gpt-4o-mini",
-        temperature: float = 0.0,
-        openai_api_key: Optional[str] = None,
+            self,
+            model_name: str = "gpt-4o-mini",
+            temperature: float = 0.0,
+            openai_api_key: Optional[str] = None,
     ):
         """
         Initialize the async form filler agent
@@ -61,19 +61,19 @@ class AsyncFormFillerAgent:
             openai_api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
         """
         self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
-        
+
         if not self.openai_api_key:
             raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable.")
-        
+
         self.llm = ChatOpenAI(
             model=model_name,
             temperature=temperature,
             api_key=self.openai_api_key,
         )
-        
+
         # Get async tools
         self.tools = get_async_screen_control_tools()
-        
+
         # Create prompt template
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert form-filling agent that controls a user's screen to fill out web forms.
@@ -169,7 +169,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
-        
+
         # Create agent
         try:
             self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
@@ -184,15 +184,15 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             self.agent = None
             self.agent_executor = None
             self._agent_error = str(e)
-    
+
     async def fill_form_fields(
-        self,
-        fields: List[DivFormField],
-        data: Dict[str, Any],
-        delay_between_fields: float = 0.1,
-        current_url: Optional[str] = None,
-        current_title: Optional[str] = None,
-        step_number: Optional[int] = None,
+            self,
+            fields: List[DivFormField],
+            data: Dict[str, Any],
+            delay_between_fields: float = 0.1,
+            current_url: Optional[str] = None,
+            current_title: Optional[str] = None,
+            step_number: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Fill out form fields using the agent asynchronously
@@ -210,16 +210,16 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
         """
         if self.agent_executor is None:
             raise RuntimeError(f"Agent not initialized: {getattr(self, '_agent_error', 'Unknown error')}")
-        
+
         filled_fields = []
         failed_fields = []
         errors = []
-        
+
         # Separate input fields from button/submit fields
         input_fields = []
         next_buttons = []  # Multi-step navigation buttons
         final_submit_buttons = []  # Final submission buttons
-        
+
         for field in fields:
             field_type = field.field_type.value
             # Check if it's a button or submit field
@@ -241,11 +241,11 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         final_submit_buttons.append(field)
             else:
                 input_fields.append(field)
-        
+
         # Build instruction for agent - include ALL input fields with their labels
         # Let the agent decide which data matches each field based on label
         field_descriptions = []
-        
+
         # Log all field labels for debugging
         logger.info("=" * 60)
         logger.info("FIELDS DETECTED ON CURRENT PAGE:")
@@ -254,36 +254,36 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             field_label = field.label or field.name or 'Unnamed'
             logger.info(f"Field {idx}: Label='{field_label}' | ID='{field.element_id}' | Name='{field.name}' | Type='{field.field_type.value}'")
         logger.info("=" * 60)
-        
+
         for field in input_fields:
             field_id = field.element_id
             field_name = field.name
             field_label = field.label or field_name or 'Unnamed'
             field_label_lower = field_label.lower()
-            
+
             bbox = field.bounding_box
             center_x = bbox.get("x", 0) + bbox.get("width", 0) // 2
             center_y = bbox.get("y", 0) + bbox.get("height", 0) // 2
             field_y = bbox.get("y", 0)
             field_height = bbox.get("height", 0)
             field_bottom_y = field_y + field_height
-            
+
             # Find best matching data key based on label similarity
             # Priority: Label > Name > ID, with various matching strategies
             best_match_key = None
             best_match_value = None
             best_score = 0
-            
+
             # Normalize field label for matching (remove common words, punctuation)
             field_label_normalized = field_label_lower.replace("'", "").replace("-", " ").replace("_", " ")
             field_label_words = [w for w in field_label_normalized.split() if len(w) > 2]
-            
+
             for key, val in data.items():
                 key_lower = key.lower()
                 key_normalized = key_lower.replace("'", "").replace("-", " ").replace("_", " ")
                 key_words = [w for w in key_normalized.split() if len(w) > 2]
                 score = 0
-                
+
                 # Exact match gets highest score
                 if key_lower == field_label_lower:
                     score = 100
@@ -319,18 +319,18 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 # Single word overlap
                 elif any(kw == flw for kw in key_words for flw in field_label_words):
                     score = 35
-                
+
                 if score > best_score:
                     best_score = score
                     best_match_key = key
                     best_match_value = val
-            
+
             # Log the match for debugging
             if best_match_key:
                 logger.info(f"  ✓ Field '{field_label}' → Matched to data key '{best_match_key}' (score: {best_score})")
             else:
                 logger.warning(f"  ⚠️  Field '{field_label}' → No match found in available data")
-            
+
             # Build field description with label prominently displayed
             field_desc = (
                 f"Field Label: '{field_label}'\n"
@@ -343,7 +343,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 f"  Bottom Y coordinate: {field_bottom_y}\n"
                 f"  Required: {field.required}"
             )
-            
+
             # Add options for SELECT/dropdown fields
             if field.field_type == FieldType.SELECT and field.options:
                 field_desc += f"\n  Dropdown Options ({len(field.options)} options):"
@@ -353,16 +353,16 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     disabled = option.get('disabled', False)
                     status = " (disabled)" if disabled else ""
                     field_desc += f"\n    [{i}] Text: '{option_text}', Value: '{option_value}'{status}"
-            
+
             # Add suggested value if we found a match
             if best_match_value is not None:
                 field_desc += f"\n  Suggested Data Key: '{best_match_key}' (match score: {best_score})\n"
                 field_desc += f"  Suggested Value: {str(best_match_value)[:100]}{'...' if len(str(best_match_value)) > 100 else ''}"
             else:
                 field_desc += "\n  No automatic match found - you must choose the best data from the available options below"
-            
+
             field_descriptions.append(field_desc)
-        
+
         # Log buttons detected
         if next_buttons or final_submit_buttons:
             logger.info("BUTTONS DETECTED:")
@@ -371,7 +371,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             for btn in final_submit_buttons:
                 logger.info(f"  FINAL SUBMIT Button: Label='{btn.label or btn.name or 'Unnamed'}' | ID='{btn.element_id}'")
             logger.info("-" * 60)
-        
+
         # Build button descriptions - prioritize next buttons, then final submit
         next_button_descriptions = []
         for button in next_buttons:
@@ -381,7 +381,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             button_y = bbox.get("y", 0)
             button_height = bbox.get("height", 0)
             button_bottom_y = button_y + button_height
-            
+
             next_button_descriptions.append(
                 f"Next Button '{button.element_id}' ({button.label or button.name or 'Unnamed'}):\n"
                 f"  Type: {button.field_type.value} (NEXT - goes to next step/page)\n"
@@ -390,7 +390,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 f"  Top Y coordinate: {button_y}\n"
                 f"  Bottom Y coordinate: {button_bottom_y}"
             )
-        
+
         final_submit_descriptions = []
         for button in final_submit_buttons:
             bbox = button.bounding_box
@@ -399,7 +399,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             button_y = bbox.get("y", 0)
             button_height = bbox.get("height", 0)
             button_bottom_y = button_y + button_height
-            
+
             final_submit_descriptions.append(
                 f"Final Submit Button '{button.element_id}' ({button.label or button.name or 'Unnamed'}):\n"
                 f"  Type: {button.field_type.value} (FINAL SUBMIT - submits entire form)\n"
@@ -408,7 +408,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 f"  Top Y coordinate: {button_y}\n"
                 f"  Bottom Y coordinate: {button_bottom_y}"
             )
-        
+
         if not field_descriptions:
             return {
                 "success": False,
@@ -416,7 +416,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "failed_fields": [f.element_id for f in input_fields],
                 "errors": ["No input fields found on the page"],
             }
-        
+
         # Build available data summary for agent reference
         data_summary = []
         logger.info("AVAILABLE USER DATA:")
@@ -428,10 +428,10 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             data_summary.append(f"  - '{key}': {value_str}")
             logger.info(f"  '{key}': {value_str}")
         logger.info("-" * 60)
-        
+
         # Build instruction with current page context
         instruction_parts = []
-        
+
         # Add page context information
         has_context = bool(current_url or current_title or step_number is not None)
         if has_context:
@@ -448,13 +448,13 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             instruction_parts.append("IMPORTANT: You are now working on a NEW page. The fields below are from THIS current page.")
             instruction_parts.append("Do NOT use information from previous pages. Only use the fields listed below.")
             instruction_parts.append("")
-        
+
         # Prepare data strings
         data_summary_str = "\n".join(data_summary)
         field_descriptions_str = "\n".join(field_descriptions)
         delay_text_field = f"   - Step 5: Wait an additional {delay_between_fields} seconds before starting the next field"
         delay_dropdown_field = f"   - Step 7: Wait an additional {delay_between_fields} seconds before starting the next field"
-        
+
         instruction_parts.extend([
             "=" * 60,
             "TASK: FILL ALL FORM FIELDS ON THIS PAGE",
@@ -564,8 +564,8 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "4. Be precise with coordinates",
             "5. The tools have built-in delays - trust them and execute sequentially",
             "6. After filling all fiels and pressing some variation of a NEXT button (if it exists), you will receive new fields from the next page - repeat the process for the new page",
-        ])
-        
+            ])
+
         # Add button clicking instructions
         if next_button_descriptions:
             instruction_parts.extend([
@@ -581,7 +581,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "   - NOTE: After clicking next, you will receive new fields from the next page",
                 "   - CRITICAL: The system will automatically capture the new URL after the next button is clicked",
             ])
-        
+
         if final_submit_descriptions:
             instruction_parts.extend([
                 "",
@@ -593,7 +593,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "   - Step 2: WAIT for the click to complete",
                 "   - This will FINALLY SUBMIT the entire form",
             ])
-        
+
         instruction_parts.extend([
             "",
             "⚠️  FINAL REMINDER:",
@@ -604,9 +604,9 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "- Do NOT skip fields unless they have absolutely no matching data",
             "- Start filling NOW with the FIRST field in the list above"
         ])
-        
+
         instruction = "\n".join(instruction_parts)
-        
+
         try:
             # Execute agent asynchronously
             # Try ainvoke first, fall back to running invoke in executor
@@ -626,10 +626,10 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         "chat_history": [],
                     }
                 )
-            
+
             # Parse result
             output = result.get("output", "")
-            
+
             # Determine which fields were filled based on output
             for field in fields:
                 field_id = field.element_id
@@ -637,11 +637,11 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     filled_fields.append(field_id)
                 else:
                     failed_fields.append(field_id)
-            
+
             # If we couldn't determine, assume all were attempted
             if not filled_fields and not failed_fields:
                 filled_fields = [f.element_id for f in fields]
-            
+
             return {
                 "success": len(filled_fields) > 0 and len(failed_fields) == 0,
                 "filled_fields": filled_fields,
@@ -649,7 +649,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "errors": errors,
                 "output": output,
             }
-            
+
         except Exception as e:
             errors.append(f"Agent execution failed: {str(e)}")
             return {
@@ -658,14 +658,14 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 "failed_fields": [f.element_id for f in fields],
                 "errors": errors,
             }
-    
+
     async def fill_form_from_url(
-        self,
-        url: str,
-        data: Dict[str, Any],
-        delay_between_fields: float = 0.1,
-        headless: bool = True,
-        max_steps: int = 200,
+            self,
+            url: str,
+            data: Dict[str, Any],
+            delay_between_fields: float = 0.1,
+            headless: bool = True,
+            max_steps: int = 200,
     ) -> Dict[str, Any]:
         """
         Analyze a URL, get fields, and fill them. Handles multi-step forms by
@@ -682,19 +682,19 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             Dictionary with results
         """
         from app.divselection import DivSelector
-        
+
         all_filled_fields = []
         all_failed_fields = []
         all_errors = []
         step = 0
-        
+
         async with DivSelector(headless=headless) as selector:
             initial_url = url
             logger.info(f"\n{'='*60}")
             logger.info(f"STARTING FORM FILLING PROCESS")
             logger.info(f"Initial URL: {initial_url}")
             logger.info(f"{'='*60}")
-            
+
             await selector.navigate(url)
             initial_loaded_url = selector.page.url
             initial_title = await selector.page.title()
@@ -702,11 +702,11 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             logger.info(f"After navigation, page URL: {initial_loaded_url}")
             logger.info(f"Page title: {initial_title}")
             logger.info(f"Hash fragment: {initial_hash or 'None'}")
-            
+
             previous_url = initial_loaded_url  # Track URL across steps
             previous_title = initial_title
             previous_hash = initial_hash
-            
+
             while step < max_steps:
                 step += 1
 
@@ -716,16 +716,16 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
 
                 current_url = selector.page.url
                 current_hash = current_url.split('#')[1] if '#' in current_url else None
-                
+
                 try:
                     current_title = await selector.page.title()
                 except Exception:
                     current_title = previous_title
-                
+
                 # Check if page changed from previous step (multiple methods)
                 page_changed = False
                 change_methods = []
-                
+
                 if previous_url is not None:
                     # Method 1: URL change
                     if current_url != previous_url:
@@ -737,7 +737,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         logger.info(f"  New URL: {current_url}")
                         logger.info(f"{'='*60}")
                         print(f"\n✓ Page Changed (URL): {previous_url} → {current_url}")
-                    
+
                     # Method 2: Hash fragment change
                     elif current_hash != previous_hash:
                         page_changed = True
@@ -748,7 +748,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         logger.info(f"  New hash: {current_hash}")
                         logger.info(f"{'='*60}")
                         print(f"\n✓ Page Changed (Hash)")
-                    
+
                     # Method 3: Title change
                     elif current_title != previous_title:
                         page_changed = True
@@ -759,7 +759,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         logger.info(f"  New title: {current_title}")
                         logger.info(f"{'='*60}")
                         print(f"\n✓ Page Changed (Title): {previous_title} → {current_title}")
-                    
+
                     if not page_changed:
                         logger.info(f"\n{'='*60}")
                         logger.info(f"Page state unchanged (may be same page or SPA navigation)")
@@ -774,12 +774,12 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     logger.info(f"  Title: {current_title}")
                     logger.info(f"  Hash: {current_hash or 'None'}")
                     logger.info(f"{'='*60}")
-                
+
                 # Update tracking variables
                 previous_url = current_url
                 previous_title = current_title
                 previous_hash = current_hash
-                
+
                 print(f"Processing form step {step}...")
                 logger.info(f"Current URL: {current_url}")
 
@@ -787,35 +787,35 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 # This is called on initial load and after each "next" button click
                 logger.info("Running divselection.find_fields() to detect fields on current page...")
                 logger.info(f"Analyzing page at URL: {current_url}")
-                
+
                 # Verify we're on the correct page before scanning
                 actual_url = selector.page.url
-                
+
                 # Ensure page is ready before scanning
                 try:
                     await selector.page.wait_for_load_state("domcontentloaded", timeout=5000)
                 except Exception as e:
                     logger.warning(f"Page load state wait timeout: {e}, proceeding anyway")
-                
+
                 # Get fresh fields from the CURRENT page
                 fields = await selector.find_fields()
                 logger.info(f"✓ divselection.find_fields() completed")
                 logger.info(f"✓ Found {len(fields)} total fields on page {step}")
                 logger.info(f"✓ URL analyzed: {current_url}")
 
-                
+
                 # Log detailed field breakdown
                 if fields:
                     input_count = sum(1 for f in fields if f.field_type.value not in ["submit", "button"])
                     button_count = sum(1 for f in fields if f.field_type.value in ["submit", "button"])
                     next_count = sum(1 for f in fields if hasattr(f, 'is_next_button') and f.is_next_button)
                     submit_count = sum(1 for f in fields if hasattr(f, 'is_final_submit') and f.is_final_submit)
-                    
+
                     logger.info(f"  - Input fields: {input_count}")
                     logger.info(f"  - Buttons: {button_count} (Next: {next_count}, Final Submit: {submit_count})")
                 else:
                     logger.warning(f"  ⚠️  No fields detected on this page!")
-                
+
                 if not fields:
                     if step == 1:
                         return {
@@ -827,11 +827,11 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     else:
                         # No more fields, form might be complete
                         break
-                
+
                 # Separate next buttons from final submit buttons
                 next_buttons = [f for f in fields if hasattr(f, 'is_next_button') and f.is_next_button]
                 final_submit_buttons = [f for f in fields if hasattr(f, 'is_final_submit') and f.is_final_submit]
-                
+
                 # Log what divselection found on this page
                 logger.info(f"\n{'='*60}")
                 logger.info(f"DIVSELECTION RESULTS FOR URL: {current_url}")
@@ -840,14 +840,14 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 logger.info(f"  - Input fields: {len(fields) - len(next_buttons) - len(final_submit_buttons)}")
                 logger.info(f"  - Next buttons: {len(next_buttons)}")
                 logger.info(f"  - Final submit buttons: {len(final_submit_buttons)}")
-                
+
                 if next_buttons:
                     for btn in next_buttons:
                         logger.info(f"    → Next button: '{btn.label or btn.name or 'Unnamed'}' (ID: {btn.element_id})")
                 if final_submit_buttons:
                     for btn in final_submit_buttons:
                         logger.info(f"    → Final submit: '{btn.label or btn.name or 'Unnamed'}' (ID: {btn.element_id})")
-                
+
                 # Log all input field labels/types for matching
                 input_fields = [f for f in fields if f.field_type.value not in ["submit", "button"]]
                 if input_fields:
@@ -864,23 +864,23 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                             field_info += f"Unnamed field (ID: {field.element_id})"
                         logger.info(field_info)
                 logger.info(f"{'='*60}")
-                
+
                 # Fill fields on current page
                 logger.info(f"\n{'='*60}")
                 logger.info(f"FEEDING FIELDS TO AGENT FOR PAGE: {current_url}")
                 logger.info(f"Agent will now fill {len(input_fields)} input fields")
                 logger.info(f"{'='*60}")
-                
+
                 # Get current page title for agent context
                 try:
                     page_title = await selector.page.title()
                 except Exception:
                     page_title = None
-                
+
                 # Pass current page state to agent so it knows it's on a new page
                 result = await self.fill_form_fields(
-                    fields, 
-                    data, 
+                    fields,
+                    data,
                     delay_between_fields,
                     current_url=current_url,
                     current_title=page_title,
@@ -889,13 +889,13 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 all_filled_fields.extend(result.get("filled_fields", []))
                 all_failed_fields.extend(result.get("failed_fields", []))
                 all_errors.extend(result.get("errors", []))
-                
+
                 logger.info(f"\n{'='*60}")
                 logger.info(f"AGENT COMPLETED FILLING FOR URL: {current_url}")
                 logger.info(f"  Filled: {len(result.get('filled_fields', []))} fields")
                 logger.info(f"  Failed: {len(result.get('failed_fields', []))} fields")
                 logger.info(f"{'='*60}")
-                
+
                 # Check if there's a final submit button to click (before next button)
                 if final_submit_buttons and not next_buttons:
                     print(f"Found {len(final_submit_buttons)} final submit button(s). Clicking final submit button...")
@@ -905,34 +905,25 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
 
                     # Click the final submit button programmatically
                     import pyautogui
-                    final_submit_button = final_submit_buttons[0]  # Use the first final submit button
+                    final_submit_button = final_submit_buttons[0]
                     bbox = final_submit_button.bounding_box
                     center_x = bbox.get("x", 0) + bbox.get("width", 0) // 2
-                    center_y = bbox.get("y", 0) + bbox.get("height", 0) // 2
+                    center_y = bbox.get("y", 0) + bbox.get("height", 0) // 2 + 20  # Offset down
 
-                    # Offset Y coordinate down slightly
-                    offset_down = 10  # Pixels to offset downward
-                    click_y = center_y + offset_down
-
-                    logger.info(f"Button center: ({center_x}, {center_y})")
-                    logger.info(f"Click position (offset down): ({center_x}, {click_y})")
+                    logger.info(f"Clicking final submit button at ({center_x}, {center_y})")
                     logger.info(f"Button: '{final_submit_button.label or final_submit_button.name or 'Unnamed'}'")
 
                     try:
-                        # Move mouse to button position (offset down from center)
-                        pyautogui.moveTo(center_x, click_y, duration=0.1)
-                        await asyncio.sleep(0.1)
-
-                        # Click the final submit button at offset position
-                        pyautogui.click(center_x, click_y, button='left', clicks=1)
-                        logger.info(f"✓ Final submit button clicked at ({center_x}, {click_y}) - offset {offset_down}px down from center")
+                        pyautogui.moveTo(center_x, center_y, duration=0.1)
+                        await asyncio.sleep(0.05)
+                        pyautogui.click(center_x, center_y, button='left', clicks=1)
+                        await asyncio.sleep(0.4)  # Wait for UI to respond (same as async tools)
+                        logger.info(f"✓ Final submit button clicked")
                         print(f"✓ Final submit button clicked successfully")
 
                         # Wait for submission to process
                         await asyncio.sleep(1.0)
-
                         logger.info(f"✓ Form submission complete")
-                        logger.info(f"{'='*60}")
 
                     except Exception as e:
                         logger.error(f"Error clicking final submit button: {e}")
@@ -947,7 +938,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                     logger.info(f"\n{'='*60}")
                     logger.info(f"CLICKING NEXT BUTTON")
                     logger.info(f"{'='*60}")
-                    
+
                     # Click the next button
                     import pyautogui
                     next_button = next_buttons[0]
@@ -1006,7 +997,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                             logger.info("Step 2: Switching to IntelliJ to paste URL...")
                             subprocess.run([
                                 'osascript', '-e',
-                                'tell application "IntelliJ IDEA" to activate'
+                                'tell application "Terminal" to activate'
                             ], capture_output=True, timeout=2)
                             await asyncio.sleep(0.3)
 

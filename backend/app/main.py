@@ -80,20 +80,20 @@ async def process_queue_item(queue_item: dict) -> bool:
         print(f"[QueueProcessor] User data: {user_data}")
         print(f"[QueueProcessor] Job application: {job_application}")
 
-        # big_data = {**user_data.items(), **job_application.items()}
-        # agent = AsyncFormFillerAgent()
-        # result = await agent.fill_form_from_url(
-        #     url=job_application.get('job_url'),
-        #     data=big_data,
-        #     delay_between_fields=0.3,
-        #     headless=True
-        # )
-        # if result["success"]:
-        #     await db.update_queue_item_status(doc_id, 'completed')
-        # else:
-        #     await db.update_queue_item_status(doc_id, 'failed', result.get("error", "Unknown error"))
+        big_data = {**user_data.items(), **job_application.items()}
+        agent = AsyncFormFillerAgent()
+        result = await agent.fill_form_from_url(
+            url=job_application.get('job_url'),
+            data=big_data,
+            delay_between_fields=0.3,
+            headless=True
+        )
+        if result["success"]:
+            await db.update_queue_item_status(doc_id, 'completed')
+        else:
+            await db.update_queue_item_status(doc_id, 'failed', result.get("error", "Unknown error"))
 
-        await asyncio.sleep(5)
+        # await asyncio.sleep(5)
         await db.update_queue_item_status(doc_id, 'completed')
 
         print(f"[QueueProcessor] Successfully processed queue item: {doc_id}")
