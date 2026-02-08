@@ -28,4 +28,28 @@ class FirestoreService {
     // A profile is considered complete if at least name and email are filled
     return profile.name.isNotEmpty && profile.email.isNotEmpty;
   }
+
+  /// Add a job ID to the user's saved_jobs array
+  Future<void> saveJob(String uid, String jobId) async {
+    await _db.collection('users').doc(uid).set({
+      'saved_jobs': FieldValue.arrayUnion([jobId]),
+    }, SetOptions(merge: true));
+  }
+
+  /// Remove a job ID from the user's saved_jobs array
+  Future<void> unsaveJob(String uid, String jobId) async {
+    await _db.collection('users').doc(uid).update({
+      'saved_jobs': FieldValue.arrayRemove([jobId]),
+    });
+  }
+
+  /// Get the list of saved job IDs for a user
+  Future<List<String>> getSavedJobs(String uid) async {
+    final doc = await _db.collection('users').doc(uid).get();
+    if (doc.exists && doc.data() != null) {
+      final data = doc.data()!;
+      return List<String>.from(data['saved_jobs'] as List? ?? []);
+    }
+    return [];
+  }
 }

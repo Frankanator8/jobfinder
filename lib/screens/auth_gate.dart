@@ -116,21 +116,24 @@ class _MainAppWithProfile extends StatefulWidget {
 
 class _MainAppWithProfileState extends State<_MainAppWithProfile> {
   UserProfile? _userProfile;
+  List<String> _savedJobIds = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _loadProfileAndSavedJobs();
   }
 
-  Future<void> _loadProfile() async {
-    final profile = await widget.firestoreService.getUserProfile(
-      widget.user.uid,
-    );
+  Future<void> _loadProfileAndSavedJobs() async {
+    final results = await Future.wait([
+      widget.firestoreService.getUserProfile(widget.user.uid),
+      widget.firestoreService.getSavedJobs(widget.user.uid),
+    ]);
     if (mounted) {
       setState(() {
-        _userProfile = profile;
+        _userProfile = results[0] as UserProfile?;
+        _savedJobIds = results[1] as List<String>;
         _isLoading = false;
       });
     }
@@ -151,11 +154,20 @@ class _MainAppWithProfileState extends State<_MainAppWithProfile> {
     return JobSwipeScreen(
       onThemeToggle: widget.onThemeToggle,
       userProfile: _userProfile,
+      savedJobIds: _savedJobIds,
       onProfileUpdated: (profile) async {
         await widget.firestoreService.saveUserProfile(widget.user.uid, profile);
         setState(() {
           _userProfile = profile;
         });
+      },
+      onJobSaved: (jobId) async {
+        await widget.firestoreService.saveJob(widget.user.uid, jobId);
+        if (mounted) {
+          setState(() {
+            _savedJobIds = [..._savedJobIds, jobId];
+          });
+        }
       },
     );
   }
