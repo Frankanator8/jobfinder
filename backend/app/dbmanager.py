@@ -260,4 +260,115 @@ class DatabaseManager:
             print(f"Database health check failed: {e}")
             return False
 
+    # Queue Operations
+    async def get_oldest_queue_item(self) -> Optional[dict]:
+        """
+        Get the oldest item from the queue collection.
+
+        Returns:
+            Dictionary with queue item data including document ID, or None if queue is empty
+        """
+        try:
+            query = (
+                self.db.collection('queue')
+                .order_by('created_at', direction=Query.ASCENDING)
+                .limit(1)
+            )
+            docs = list(query.stream())
+
+            if docs:
+                doc = docs[0]
+                data = doc.to_dict()
+                data['_doc_id'] = doc.id
+                print(f"[Queue] Found oldest item: {doc.id}")
+                return data
+            return None
+        except Exception as e:
+            print(f"[Queue] Error getting oldest queue item: {e}")
+            return None
+
+    async def delete_queue_item(self, doc_id: str) -> bool:
+        """
+        Delete a queue item by document ID.
+
+        Args:
+            doc_id: The Firestore document ID to delete
+
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        try:
+            self.db.collection('queue').document(doc_id).delete()
+            print(f"[Queue] Deleted queue item: {doc_id}")
+            return True
+        except Exception as e:
+            print(f"[Queue] Error deleting queue item {doc_id}: {e}")
+            return False
+
+    async def update_queue_item_status(self, doc_id: str, status: str, error: Optional[str] = None) -> bool:
+        """
+        Update the status of a queue item.
+
+        Args:
+            doc_id: The Firestore document ID
+            status: New status (e.g., 'processing', 'completed', 'failed')
+            error: Optional error message if status is 'failed'
+
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        try:
+            update_data = {
+                'status': status,
+                'updated_at': datetime.now(timezone.utc)
+            }
+            if error:
+                update_data['error'] = error
+
+            self.db.collection('queue').document(doc_id).update(update_data)
+            print(f"[Queue] Updated queue item {doc_id} status to: {status}")
+            return True
+        except Exception as e:
+            print(f"[Queue] Error updating queue item {doc_id}: {e}")
+            return False
+
+    async def get_pending_queue_items_count(self) -> int:
+        """
+        Get the count of pending items in the queue.
+
+        Returns:
+            Number of pending queue items
+        """
+        try:
+            query = self.db.collection('queue').where('status', '==', None)
+            docs = list(query.stream())
+            return len(docs)
+        except Exception as e:
+            print(f"[Queue] Error counting queue items: {e}")
+            return 0
+
+    async def get_user_data(self, applicant_id: str) -> Optional[dict]:
+        """
+        Get user data by applicant ID.
+
+        Args:
+            applicant_id: The user's ID
+
+        Returns:
+            Dictionary with user data, or None if not found
+        """
+        try:
+            doc_ref = self.db.collection('users').document(applicant_id)
+            doc = doc_ref.get()
+
+            if doc.exists:
+                data = doc.to_dict()
+                print(f"[Queue] Found user data for: {applicant_id}")
+                return data
+            print(f"[Queue] No user data found for: {applicant_id}")
+            return None
+        except Exception as e:
+            print(f"[Queue] Error getting user data: {e}")
+            return None
+
 db = DatabaseManager()
