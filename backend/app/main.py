@@ -88,3 +88,10 @@ else:
 @app.get("/")
 async def root() -> dict[str, str]:
     return {"message": "Welcome to DF26 Backend"}
+
+
+@app.get("/apply")
+async def apply(application_id, applicant_id):
+    raw_user_data = {} # TODO: API Call
+    user_data = {} # TODO: Process raw_user_data
+
