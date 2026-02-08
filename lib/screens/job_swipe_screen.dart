@@ -709,6 +709,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                             key: _cardStackKey,
                             jobs: _jobs,
                             onSwipe: _onSwipe,
+                            onScrapeMore: _scrapeMoreJobs,
+                            isScraping: _isLoadingMore,
                           ),
                         ),
                       ],
