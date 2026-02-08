@@ -10,13 +10,17 @@ import 'user_info_screen.dart';
 class JobSwipeScreen extends StatefulWidget {
   final VoidCallback? onThemeToggle;
   final UserProfile? userProfile;
+  final List<String> savedJobIds;
   final Function(UserProfile)? onProfileUpdated;
+  final Function(String jobId)? onJobSaved;
 
   const JobSwipeScreen({
     super.key,
     this.onThemeToggle,
     this.userProfile,
+    this.savedJobIds = const [],
     this.onProfileUpdated,
+    this.onJobSaved,
   });
 
   @override
@@ -48,8 +52,22 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
 
     try {
       final jobs = await JobService.fetchAllJobs();
+      final savedIds = widget.savedJobIds.toSet();
+
+      // Separate into previously saved jobs and unseen jobs
+      final savedJobs = <Job>[];
+      final unseenJobs = <Job>[];
+      for (final job in jobs) {
+        if (savedIds.contains(job.id)) {
+          savedJobs.add(job);
+        } else {
+          unseenJobs.add(job);
+        }
+      }
+
       setState(() {
-        _jobs = jobs;
+        _likedJobs = savedJobs;
+        _jobs = unseenJobs;
         _isLoading = false;
       });
     } catch (e) {
@@ -94,7 +112,7 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
       }
     });
 
-    // Add to queue if liked
+    // Add to queue and save to Firestore if liked
     if (isLiked) {
       final currentUser = AuthService().currentUser;
       if (currentUser != null) {
@@ -108,6 +126,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           debugPrint('[Queue] Failed to add to queue: $e');
         }
       }
+      // Save job ID to user's saved_jobs in Firestore
+      widget.onJobSaved?.call(job.id);
     }
 
     // Show feedback
