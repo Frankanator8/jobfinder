@@ -1,4 +1,3 @@
-import csv
 import time
 import uuid
 from typing import Dict, Any, Optional
@@ -92,6 +91,79 @@ def _jobs_are_different(existing_job: JobApplication, new_job: JobApplication) -
             return True
 
     return False
+
+@router.get("/get-jobs")
+async def get_jobs_endpoint(
+    limit: int = 10,
+    offset: int = 0,
+    order_by: str = "date_posted",
+    order_direction: str = "desc"
+) -> Dict[str, Any]:
+    """
+    Fetch n jobs starting at a certain index from the Firestore database.
+
+    Args:
+        limit: Number of jobs to fetch (n) - default: 10
+        offset: Number of jobs to skip (starting index i) - default: 0
+        order_by: Field to order by - default: "date_posted"
+        order_direction: Order direction ("asc" or "desc") - default: "desc"
+
+    Returns:
+        Dictionary containing jobs list and pagination metadata
+    """
+    try:
+        # Validate parameters
+        if limit <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Limit must be greater than 0"
+            )
+
+        if offset < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Offset must be 0 or greater"
+            )
+
+        if order_direction.lower() not in ["asc", "desc"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Order direction must be 'asc' or 'desc'"
+            )
+
+        # Create database manager instance
+        db_manager = DatabaseManager()
+
+        # Fetch jobs with pagination
+        result = await db_manager.get_jobs_paginated(
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+            order_direction=order_direction
+        )
+
+        # Check if there was an error in the database operation
+        if "error" in result:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error: {result['error']}"
+            )
+
+        return {
+            "success": True,
+            "data": result,
+            "message": f"Successfully fetched {len(result['jobs'])} jobs (offset: {offset}, limit: {limit})"
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching jobs: {str(e)}"
+        )
+
 
 @router.get("/scrape-jobs")
 async def scrape_jobs_endpoint(

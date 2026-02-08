@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional, Any
 import firebase_admin
 from firebase_admin import credentials, firestore
-from google.cloud.firestore import Client
+from google.cloud.firestore import Client, Query
 from .schemas.job_app import JobApplication
 
 class DatabaseManager:
@@ -173,6 +173,72 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error updating job application: {e}")
             return False
+
+    async def get_jobs_paginated(self, limit: int = 10, offset: int = 0, order_by: str = "date_posted", order_direction: str = "desc") -> dict:
+        """
+        Get job applications with pagination support.
+
+        Args:
+            limit: Number of jobs to fetch (n)
+            offset: Number of jobs to skip (starting index)
+            order_by: Field to order by (default: date_posted)
+            order_direction: Order direction ("asc" or "desc", default: "desc")
+
+        Returns:
+            Dictionary containing jobs list and metadata
+        """
+        try:
+            # Build the query
+            query = self.db.collection('jobs')
+
+            # Add ordering
+            if order_direction.lower() == "desc":
+                query = query.order_by(order_by, direction=Query.DESCENDING)
+            else:
+                query = query.order_by(order_by, direction=Query.ASCENDING)
+
+            # Apply offset and limit
+            query = query.offset(offset).limit(limit)
+
+            # Execute query
+            docs = query.stream()
+
+            jobs = []
+            for doc in docs:
+                data = doc.to_dict()
+                data = self._deserialize_datetime(data)
+                job_application = JobApplication(**data)
+                jobs.append(job_application.model_dump())
+
+            # Get total count for pagination metadata
+            total_query = self.db.collection('jobs')
+            total_docs = list(total_query.stream())
+            total_count = len(total_docs)
+
+            return {
+                "jobs": jobs,
+                "total_count": total_count,
+                "current_page": (offset // limit) + 1 if limit > 0 else 1,
+                "total_pages": (total_count + limit - 1) // limit if limit > 0 else 1,
+                "has_next": offset + limit < total_count,
+                "has_previous": offset > 0,
+                "limit": limit,
+                "offset": offset
+            }
+
+        except Exception as e:
+            print(f"Error fetching paginated jobs: {e}")
+            return {
+                "jobs": [],
+                "total_count": 0,
+                "current_page": 1,
+                "total_pages": 0,
+                "has_next": False,
+                "has_previous": False,
+                "limit": limit,
+                "offset": offset,
+                "error": str(e)
+            }
 
     # Utility Methods
     async def health_check(self) -> bool:
