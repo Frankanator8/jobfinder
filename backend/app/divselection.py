@@ -102,6 +102,8 @@ class FieldType(Enum):
     URL = "url"
     DATE = "date"
     PASSWORD = "password"
+    BUTTON = "button"
+    SUBMIT = "submit"
     UNKNOWN = "unknown"
 
 
@@ -138,6 +140,8 @@ FIELD_KEYWORDS = {
     FieldType.FILE: ["resume", "cv", "upload", "file", "attachment", "document"],
     FieldType.URL: ["linkedin", "portfolio", "website", "github", "url", "link"],
     FieldType.DATE: ["date", "start", "available", "availability"],
+    FieldType.SUBMIT: ["submit", "send", "apply", "next", "continue", "proceed", "finish", "complete"],
+    FieldType.BUTTON: ["button", "btn", "click", "action"],
 }
 
 # Highlight colors for different field types
@@ -153,6 +157,9 @@ HIGHLIGHT_COLORS = {
     FieldType.SELECT: "#98D8C8",    # Mint
     FieldType.CHECKBOX: "#F7DC6F",  # Light Yellow
     FieldType.RADIO: "#BB8FCE",     # Light Purple
+    FieldType.PASSWORD: "#FF69B4",  # Hot Pink
+    FieldType.SUBMIT: "#FF4444",    # Bright Red
+    FieldType.BUTTON: "#FF8C00",    # Dark Orange
     FieldType.UNKNOWN: "#BDC3C7",   # Gray
 }
 
@@ -253,6 +260,8 @@ class DivSelector:
             "checkbox": FieldType.CHECKBOX,
             "radio": FieldType.RADIO,
             "password": FieldType.PASSWORD,
+            "submit": FieldType.SUBMIT,
+            "button": FieldType.BUTTON,
         }
 
         if input_type in type_mapping:
@@ -275,6 +284,36 @@ class DivSelector:
             return FieldType.TEXT
 
         return FieldType.UNKNOWN
+
+    async def _classify_button_type(self, element: ElementHandle, attributes: dict) -> FieldType:
+        """
+        Classify a button element as either submit or generic button.
+
+        Args:
+            element: The button element
+            attributes: Dictionary of element attributes
+
+        Returns:
+            FieldType.SUBMIT or FieldType.BUTTON
+        """
+        # Get button text content
+        button_text = await element.evaluate("el => el.textContent || el.value || ''")
+
+        # Combine all searchable text
+        searchable = " ".join([
+            attributes.get("name", ""),
+            attributes.get("id", ""),
+            attributes.get("class", ""),
+            attributes.get("aria-label", ""),
+            button_text,
+        ]).lower()
+
+        # Check for submit-related keywords
+        submit_keywords = FIELD_KEYWORDS[FieldType.SUBMIT]
+        if any(kw in searchable for kw in submit_keywords):
+            return FieldType.SUBMIT
+        # Default to generic button
+        return FieldType.BUTTON
 
     async def _get_element_attributes(self, element: ElementHandle) -> dict:
         """Get relevant attributes from an element."""
@@ -335,10 +374,13 @@ class DivSelector:
 
         # Selectors for common form elements
         selectors = [
-            "input:not([type='hidden']):not([type='submit']):not([type='button'])",
+            "input:not([type='hidden'])",  # Include all inputs now
             "textarea",
             "select",
             "[contenteditable='true']",
+            "button",  # Button elements
+            "input[type='submit']",  # Submit inputs
+            "input[type='button']",  # Button inputs
         ]
 
         for selector in selectors:
@@ -352,7 +394,14 @@ class DivSelector:
                         continue
 
                     attrs = await self._get_element_attributes(element)
-                    label = await self._find_label_for_element(element)
+
+                    # For buttons, prefer text content as label
+                    tag_name = attrs.get("tagName", "input")
+                    if tag_name == "button" or attrs.get("type") in ["submit", "button"]:
+                        button_text = await element.evaluate("el => el.textContent || el.value || ''")
+                        label = button_text.strip() or await self._find_label_for_element(element)
+                    else:
+                        label = await self._find_label_for_element(element)
 
                     # Get bounding box for the element
                     box = await element.bounding_box()
@@ -367,6 +416,12 @@ class DivSelector:
                         field_type = FieldType.TEXTAREA
                     elif tag_name == "select":
                         field_type = FieldType.SELECT
+                    elif tag_name == "button":
+                        # For button elements, check text content and attributes for submit keywords
+                        field_type = await self._classify_button_type(element, attrs)
+                    elif input_type in ["submit", "button"]:
+                        # For input elements of type submit or button
+                        field_type = await self._classify_button_type(element, attrs)
                     else:
                         field_type = self._classify_field_type(input_type, attrs)
 
