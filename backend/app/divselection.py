@@ -144,7 +144,7 @@ FIELD_KEYWORDS = {
     FieldType.FILE: ["resume", "cv", "upload", "file", "attachment", "document"],
     FieldType.URL: ["linkedin", "portfolio", "website", "github", "url", "link"],
     FieldType.DATE: ["date", "start", "available", "availability"],
-    FieldType.SUBMIT: ["submit", "send", "apply", "next", "continue", "proceed", "finish", "complete"],
+    FieldType.SUBMIT: ["submit", "send", "apply", "next", "continue", "proceed", "finish", "complete", "register"],
     FieldType.BUTTON: ["button", "btn", "click", "action"],
 }
 
@@ -493,10 +493,10 @@ class DivSelector:
                         required=attrs.get("required", False),
                         selector=unique_selector,
                         bounding_box={
-                            "x": box["x"],
-                            "y": box["y"],
-                            "width": box["width"],
-                            "height": box["height"]
+                            "x": box["x"]+5,
+                            "y": box["y"]+5,
+                            "width": box["width"]-10,
+                            "height": box["height"]-10
                         },
                         is_next_button=is_next_button,
                         is_final_submit=is_final_submit
