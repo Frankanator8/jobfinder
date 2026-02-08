@@ -26,6 +26,85 @@ class JobCard extends StatelessWidget {
     return colors[hash.abs() % colors.length];
   }
 
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return '${weeks}w ago';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return '${months}mo ago';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return '${years}y ago';
+    }
+  }
+
+  Widget _buildLogo(Color companyColor) {
+    if (job.logo == null || job.logo!.isEmpty) {
+      debugPrint('[JobCard] No logo URL for ${job.company}: logo=${job.logo}');
+      return Icon(
+        Icons.business_outlined,
+        color: companyColor,
+        size: 24,
+      );
+    }
+
+    final logoUrl = job.logo!;
+    debugPrint('[JobCard] Attempting to load logo for ${job.company}');
+    debugPrint('[JobCard] URL: $logoUrl');
+
+    return Image.network(
+      logoUrl,
+      width: 48,
+      height: 48,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) {
+          debugPrint('[JobCard] ✓ Logo loaded successfully for ${job.company}');
+          return child;
+        }
+        final progress = loadingProgress.expectedTotalBytes != null
+            ? (loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! * 100).toStringAsFixed(0)
+            : '?';
+        debugPrint('[JobCard] Loading ${job.company} logo: $progress%');
+        return Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            value: loadingProgress.expectedTotalBytes != null
+                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                : null,
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        debugPrint('[JobCard] ✗ Logo FAILED for ${job.company}');
+        debugPrint('[JobCard]   URL: $logoUrl');
+        debugPrint('[JobCard]   Error type: ${error.runtimeType}');
+        debugPrint('[JobCard]   Error: $error');
+        if (error.toString().contains('CORS') ||
+            error.toString().contains('XMLHttpRequest') ||
+            error.toString().contains('NetworkError')) {
+          debugPrint('[JobCard]   ⚠️  This appears to be a CORS error. Try running with:');
+          debugPrint('[JobCard]       flutter run -d chrome --web-browser-flag "--disable-web-security"');
+        }
+        return Icon(
+          Icons.business_outlined,
+          color: companyColor,
+          size: 24,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final companyColor = _getCompanyColor(job.company);
@@ -71,11 +150,8 @@ class JobCard extends StatelessWidget {
                       color: companyColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(
-                      Icons.business_outlined,
-                      color: companyColor,
-                      size: 24,
-                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _buildLogo(companyColor),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -108,6 +184,31 @@ class JobCard extends StatelessWidget {
                       ],
                     ),
                   ),
+                  // Date posted
+                  if (job.datePosted != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.grey.shade800.withOpacity(0.5)
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _formatDate(job.datePosted!),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : const Color(0xFF5F6368),
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

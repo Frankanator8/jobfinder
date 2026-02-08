@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/job.dart';
 import '../models/user_profile.dart';
 import '../services/auth_service.dart';
+import '../services/job_service.dart';
 import '../widgets/swipeable_card_stack.dart';
 import 'user_info_screen.dart';
 
@@ -26,6 +27,8 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
   List<Job> _likedJobs = [];
   List<Job> _passedJobs = [];
   UserProfile? _userProfile;
+  bool _isLoading = true;
+  String? _errorMessage;
   final GlobalKey<SwipeableCardStackState> _cardStackKey =
       GlobalKey<SwipeableCardStackState>();
 
@@ -36,83 +39,46 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     _loadJobs();
   }
 
-  void _loadJobs() {
-    // Sample job data
+  void _loadJobs() async {
     setState(() {
-      _jobs = [
-        Job(
-          id: '1',
-          title: 'Senior Flutter Developer',
-          company: 'TechCorp',
-          location: 'San Francisco, CA',
-          salary: '\$120k - \$150k',
-          description:
-              'Join our innovative team to build cutting-edge mobile applications. We\'re looking for an experienced Flutter developer to lead our mobile development efforts.',
-          requirements: ['Flutter', 'Dart', 'REST APIs', 'Git'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '2',
-          title: 'Mobile App Designer',
-          company: 'DesignStudio',
-          location: 'New York, NY',
-          salary: '\$90k - \$110k',
-          description:
-              'Create beautiful and intuitive user experiences for our mobile applications. Work closely with developers to bring designs to life.',
-          requirements: ['UI/UX', 'Figma', 'Prototyping', 'Design Systems'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '3',
-          title: 'Backend Engineer',
-          company: 'CloudTech',
-          location: 'Remote',
-          salary: '\$100k - \$130k',
-          description:
-              'Build scalable backend systems using modern technologies. Work on microservices architecture and cloud infrastructure.',
-          requirements: ['Node.js', 'Python', 'AWS', 'Docker'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '4',
-          title: 'Product Manager',
-          company: 'StartupXYZ',
-          location: 'Austin, TX',
-          salary: '\$110k - \$140k',
-          description:
-              'Lead product strategy and work with cross-functional teams to deliver amazing products. Drive product vision and roadmap.',
-          requirements: [
-            'Product Strategy',
-            'Agile',
-            'Analytics',
-            'Leadership',
-          ],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '5',
-          title: 'DevOps Engineer',
-          company: 'InfraSolutions',
-          location: 'Seattle, WA',
-          salary: '\$115k - \$145k',
-          description:
-              'Manage and optimize our cloud infrastructure. Implement CI/CD pipelines and ensure system reliability and scalability.',
-          requirements: ['Kubernetes', 'Terraform', 'CI/CD', 'Monitoring'],
-          type: 'Full-time',
-        ),
-        Job(
-          id: '6',
-          title: 'Data Scientist',
-          company: 'DataInsights',
-          location: 'Boston, MA',
-          salary: '\$125k - \$160k',
-          description:
-              'Analyze complex datasets and build machine learning models. Help drive data-driven decision making across the organization.',
-          requirements: ['Python', 'ML', 'SQL', 'Statistics'],
-          type: 'Full-time',
-        ),
-      ];
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final jobs = await JobService.fetchAllJobs();
+      setState(() {
+        _jobs = jobs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load jobs: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return '${weeks}w ago';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return '${months}mo ago';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return '${years}y ago';
+    }
   }
 
   void _onSwipe(Job job, bool isLiked) {
@@ -335,11 +301,25 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                                               borderRadius:
                                                   BorderRadius.circular(10),
                                             ),
-                                            child: const Icon(
-                                              Icons.work_outline,
-                                              color: Color(0xFF6366F1),
-                                              size: 20,
-                                            ),
+                                            clipBehavior: Clip.antiAlias,
+                                            child: job.logo != null && job.logo!.isNotEmpty
+                                                ? Image.network(
+                                                    job.logo!,
+                                                    width: 40,
+                                                    height: 40,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (context, error, stackTrace) =>
+                                                        const Icon(
+                                                          Icons.work_outline,
+                                                          color: Color(0xFF6366F1),
+                                                          size: 20,
+                                                        ),
+                                                  )
+                                                : const Icon(
+                                                    Icons.work_outline,
+                                                    color: Color(0xFF6366F1),
+                                                    size: 20,
+                                                  ),
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
@@ -373,9 +353,44 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
                                                     fontSize: 13,
                                                   ),
                                                 ),
+                                                if (job.type.isNotEmpty) ...[
+                                                  const SizedBox(height: 4),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 2,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: isDark
+                                                          ? Colors.grey.shade700
+                                                          : Colors.grey.shade200,
+                                                      borderRadius: BorderRadius.circular(8),
+                                                    ),
+                                                    child: Text(
+                                                      job.type,
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w500,
+                                                        color: isDark
+                                                            ? Colors.grey.shade300
+                                                            : Colors.grey.shade700,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
                                               ],
                                             ),
                                           ),
+                                          if (job.datePosted != null)
+                                            Text(
+                                              _formatDate(job.datePosted!),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isDark
+                                                    ? Colors.grey.shade500
+                                                    : Colors.grey.shade500,
+                                              ),
+                                            ),
                                         ],
                                       ),
                                     );
@@ -420,18 +435,44 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: Column(
-        children: [
-          // Card stack area
-          Expanded(
-            child: SwipeableCardStack(
-              key: _cardStackKey,
-              jobs: _jobs,
-              onSwipe: _onSwipe,
-            ),
-          ),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: Colors.red.shade400,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadJobs,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : Column(
+                  children: [
+                    // Card stack area
+                    Expanded(
+                      child: SwipeableCardStack(
+                        key: _cardStackKey,
+                        jobs: _jobs,
+                        onSwipe: _onSwipe,
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 }
