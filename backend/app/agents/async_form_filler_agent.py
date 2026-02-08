@@ -183,6 +183,9 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
         fields: List[DivFormField],
         data: Dict[str, Any],
         delay_between_fields: float = 0.3,
+        current_url: Optional[str] = None,
+        current_title: Optional[str] = None,
+        step_number: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Fill out form fields using the agent asynchronously
@@ -191,6 +194,9 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             fields: List of FormField objects from divselection.py
             data: Dictionary mapping field identifiers to values
             delay_between_fields: Delay between field interactions in seconds
+            current_url: Current page URL (for agent context)
+            current_title: Current page title (for agent context)
+            step_number: Current step number in multi-step form (for agent context)
             
         Returns:
             Dictionary with success status and details
@@ -375,17 +381,42 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             logger.info(f"  '{key}': {value_str}")
         logger.info("-" * 60)
         
-        # Build instruction
-        instruction_parts = [
-            f"Fill out the following form fields on the screen using their bounding box coordinates.",
+        # Build instruction with current page context
+        instruction_parts = []
+        
+        # Add page context information
+        has_context = bool(current_url or current_title or step_number is not None)
+        if has_context:
+            instruction_parts.append("=" * 60)
+            instruction_parts.append("CURRENT PAGE CONTEXT:")
+            if step_number is not None:
+                instruction_parts.append(f"  Step Number: {step_number}")
+            if current_url:
+                instruction_parts.append(f"  Current URL: {current_url}")
+            if current_title:
+                instruction_parts.append(f"  Current Page Title: {current_title}")
+            instruction_parts.append("=" * 60)
+            instruction_parts.append("")
+            instruction_parts.append("IMPORTANT: You are now working on a NEW page. The fields below are from THIS current page.")
+            instruction_parts.append("Do NOT use information from previous pages. Only use the fields listed below.")
+            instruction_parts.append("")
+        
+        # Prepare data strings
+        data_summary_str = "\n".join(data_summary)
+        field_descriptions_str = "\n".join(field_descriptions)
+        delay_text_field = f"   - Step 5: Wait an additional {delay_between_fields} seconds before starting the next field"
+        delay_dropdown_field = f"   - Step 7: Wait an additional {delay_between_fields} seconds before starting the next field"
+        
+        instruction_parts.extend([
+            "Fill out the following form fields on the screen using their bounding box coordinates.",
             "",
             "AVAILABLE USER DATA (choose the best match for each field based on the LABEL):",
             "",
-            f"{chr(10).join(data_summary)}",
+            data_summary_str,
             "",
             "FORM FIELDS TO FILL (match each field's LABEL to the appropriate data above):",
             "",
-            f"{chr(10).join(field_descriptions)}",
+            field_descriptions_str,
             "",
             "CRITICAL INSTRUCTIONS - EXECUTE SEQUENTIALLY:",
             "",
@@ -425,7 +456,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "   - Step 2: WAIT for the click to complete (the tool handles this)",
             "   - Step 3: Type the matched value directly (use type_text tool)",
             "   - Step 4: WAIT for typing to complete",
-            f"   - Step 5: Wait an additional {delay_between_fields} seconds before starting the next field",
+            delay_text_field,
             "",
             "   For DROPDOWN/SELECT fields (CRITICAL - special handling required):",
             "   - Step 0: Look at the field's LABEL and match it to the best data from 'AVAILABLE USER DATA'",
@@ -436,7 +467,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "   - Step 4: WAIT 0.3 seconds after typing",
             "   - Step 5: Press Enter to confirm the selection (use press_key tool with 'enter')",
             "   - Step 6: WAIT for selection to complete",
-            f"   - Step 7: Wait an additional {delay_between_fields} seconds before starting the next field",
+            delay_dropdown_field,
             "",
             "   For CHECKBOX fields:",
             "   - Step 0: Check if field is FULLY visible",
@@ -453,7 +484,7 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
             "3. NEVER call multiple tools at once - each tool must complete before calling the next",
             "4. Be precise with coordinates",
             "5. The tools have built-in delays - trust them and execute sequentially",
-        ]
+        ])
         
         # Add button clicking instructions
         if next_button_descriptions:
@@ -671,10 +702,35 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 # This is called on initial load and after each "next" button click
                 logger.info("Running divselection.find_fields() to detect fields on current page...")
                 logger.info(f"Analyzing page at URL: {current_url}")
+                
+                # Verify we're on the correct page before scanning
+                actual_url = selector.page.url
+                if actual_url != current_url:
+                    logger.warning(f"⚠️  URL mismatch detected!")
+                    logger.warning(f"  Expected URL: {current_url}")
+                    logger.warning(f"  Actual page URL: {actual_url}")
+                    logger.warning(f"  Using actual page URL for field detection")
+                    current_url = actual_url  # Update to actual URL
+                
+                # Ensure page is ready before scanning
+                try:
+                    await selector.page.wait_for_load_state("domcontentloaded", timeout=5000)
+                except Exception as e:
+                    logger.warning(f"Page load state wait timeout: {e}, proceeding anyway")
+                
+                # Get fresh fields from the CURRENT page
                 fields = await selector.find_fields()
                 logger.info(f"✓ divselection.find_fields() completed")
                 logger.info(f"✓ Found {len(fields)} total fields on page {step}")
                 logger.info(f"✓ URL analyzed: {current_url}")
+                
+                # Double-check the page URL after scanning
+                post_scan_url = selector.page.url
+                if post_scan_url != current_url:
+                    logger.warning(f"⚠️  URL changed during field scanning!")
+                    logger.warning(f"  Before scan: {current_url}")
+                    logger.warning(f"  After scan: {post_scan_url}")
+                    current_url = post_scan_url  # Update to latest URL
                 
                 # Log detailed field breakdown
                 if fields:
@@ -742,7 +798,22 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                 logger.info(f"FEEDING FIELDS TO AGENT FOR PAGE: {current_url}")
                 logger.info(f"Agent will now fill {len(input_fields)} input fields")
                 logger.info(f"{'='*60}")
-                result = await self.fill_form_fields(fields, data, delay_between_fields)
+                
+                # Get current page title for agent context
+                try:
+                    page_title = await selector.page.title()
+                except Exception:
+                    page_title = None
+                
+                # Pass current page state to agent so it knows it's on a new page
+                result = await self.fill_form_fields(
+                    fields, 
+                    data, 
+                    delay_between_fields,
+                    current_url=current_url,
+                    current_title=page_title,
+                    step_number=step
+                )
                 all_filled_fields.extend(result.get("filled_fields", []))
                 all_failed_fields.extend(result.get("failed_fields", []))
                 all_errors.extend(result.get("errors", []))
@@ -967,13 +1038,28 @@ IMPORTANT: After filling all input fields, you will be instructed to click on an
                         logger.warning(f"Page load wait timeout: {e}")
                         await asyncio.sleep(3)  # Fallback wait
                     
-                    # Get final page state (multiple methods)
+                    # Get final page state (multiple methods) - ensure we have the latest state
                     final_url = selector.page.url
                     try:
                         final_title = await selector.page.title()
                     except Exception:
                         final_title = previous_title
                     final_hash = final_url.split('#')[1] if '#' in final_url else None
+                    
+                    # Verify page state is stable before proceeding
+                    logger.info(f"Verifying final page state...")
+                    logger.info(f"  Final URL: {final_url}")
+                    logger.info(f"  Final title: {final_title}")
+                    logger.info(f"  Final hash: {final_hash or 'None'}")
+                    
+                    # Wait a bit more for any final dynamic content
+                    await asyncio.sleep(1)
+                    
+                    # Double-check URL hasn't changed
+                    final_url_check = selector.page.url
+                    if final_url_check != final_url:
+                        logger.warning(f"⚠️  URL changed during final wait: {final_url} → {final_url_check}")
+                        final_url = final_url_check
                     
                     logger.info(f"\n{'='*60}")
                     logger.info(f"NAVIGATION COMPLETE")
