@@ -57,7 +57,7 @@ class JobApplicationCreate(BaseModel):
     category: Optional[str] = Field(None, description="Job category from JobCategory enum")
 
 
-
+# 67
 class JobApplicationUpdate(BaseModel):
     """Schema for updating a job application"""
     job_url: Optional[str] = Field(None, description="URL of the job posting")
