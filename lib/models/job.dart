@@ -9,6 +9,9 @@ class Job {
   final String type; // Full-time, Part-time, Contract, etc.
   final String? logo;
   final DateTime? datePosted;
+  final String? category;
+  final String? jobUrl;
+  final String? jobUrlDirect;
 
   Job({
     required this.id,
@@ -21,7 +24,18 @@ class Job {
     required this.type,
     this.logo,
     this.datePosted,
+    this.category,
+    this.jobUrl,
+    this.jobUrlDirect,
   });
+
+  /// The best available URL for this job: prefer the direct application link,
+  /// fall back to the aggregator URL.
+  String? get bestUrl {
+    if (jobUrlDirect != null && jobUrlDirect!.isNotEmpty) return jobUrlDirect;
+    if (jobUrl != null && jobUrl!.isNotEmpty) return jobUrl;
+    return null;
+  }
 
   factory Job.fromJson(Map<String, dynamic> json) {
     return Job(
@@ -40,6 +54,9 @@ class Job {
       datePosted: json['date_posted'] != null
           ? DateTime.tryParse(json['date_posted'].toString())
           : null,
+      category: json['category'] as String?,
+      jobUrl: json['job_url'] as String?,
+      jobUrlDirect: json['job_url_direct'] as String?,
     );
   }
 }

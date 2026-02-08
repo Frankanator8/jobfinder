@@ -5,11 +5,15 @@ import 'job_card.dart';
 class SwipeableCardStack extends StatefulWidget {
   final List<Job> jobs;
   final Function(Job job, bool isLiked)? onSwipe;
+  final VoidCallback? onScrapeMore;
+  final bool isScraping;
 
   const SwipeableCardStack({
     super.key,
     required this.jobs,
     this.onSwipe,
+    this.onScrapeMore,
+    this.isScraping = false,
   });
 
   @override
@@ -228,7 +232,7 @@ class SwipeableCardStackState extends State<SwipeableCardStack>
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.work_outline,
+                  Icons.search_off_rounded,
                   size: 56,
                   color: isDark
                       ? Colors.grey.shade500
@@ -237,7 +241,7 @@ class SwipeableCardStackState extends State<SwipeableCardStack>
               ),
               const SizedBox(height: 24),
               Text(
-                'All caught up!',
+                'No jobs found',
                 style: TextStyle(
                   fontSize: 24,
                   color: isDark
@@ -249,7 +253,7 @@ class SwipeableCardStackState extends State<SwipeableCardStack>
               ),
               const SizedBox(height: 8),
               Text(
-                'You\'ve seen all available jobs.\nCheck back later for new opportunities.',
+                'No jobs match your current preferences.\nTry updating your search settings or scrape for new listings.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
@@ -259,6 +263,42 @@ class SwipeableCardStackState extends State<SwipeableCardStack>
                   height: 1.5,
                 ),
               ),
+              const SizedBox(height: 28),
+              if (widget.onScrapeMore != null)
+                SizedBox(
+                  width: 220,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: widget.isScraping ? null : widget.onScrapeMore,
+                    icon: widget.isScraping
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.search, size: 20),
+                    label: Text(
+                      widget.isScraping ? 'Scraping...' : 'Scrape More Jobs',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4285F4),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFF4285F4).withOpacity(0.6),
+                      disabledForegroundColor: Colors.white70,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

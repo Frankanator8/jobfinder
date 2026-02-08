@@ -174,7 +174,7 @@ class DatabaseManager:
             print(f"Error updating job application: {e}")
             return False
 
-    async def get_jobs_paginated(self, limit: int = 10, offset: int = 0, order_by: str = "date_posted", order_direction: str = "desc") -> dict:
+    async def get_jobs_paginated(self, limit: int = 10, offset: int = 0, order_by: str = "date_posted", order_direction: str = "desc", category: str = None) -> dict:
         """
         Get job applications with pagination support.
 
@@ -183,6 +183,7 @@ class DatabaseManager:
             offset: Number of jobs to skip (starting index)
             order_by: Field to order by (default: date_posted)
             order_direction: Order direction ("asc" or "desc", default: "desc")
+            category: Optional category to filter by
 
         Returns:
             Dictionary containing jobs list and metadata
@@ -190,6 +191,10 @@ class DatabaseManager:
         try:
             # Build the query
             query = self.db.collection('jobs')
+
+            # Filter by category if provided
+            if category:
+                query = query.where('category', '==', category)
 
             # Add ordering
             if order_direction.lower() == "desc":
@@ -212,6 +217,8 @@ class DatabaseManager:
 
             # Get total count for pagination metadata
             total_query = self.db.collection('jobs')
+            if category:
+                total_query = total_query.where('category', '==', category)
             total_docs = list(total_query.stream())
             total_count = len(total_docs)
 

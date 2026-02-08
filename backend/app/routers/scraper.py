@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from jobspy import scrape_jobs
 from ..schemas.job_app import JobApplication
+from ..schemas.job_app import JobCategory
 from ..dbmanager import DatabaseManager
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
@@ -12,6 +13,92 @@ router = APIRouter(prefix="/scraper", tags=["scraper"])
 # Rate limiting variables
 _last_scrape_time = 0
 _rate_limit_seconds = 5
+
+# ----- Predefined search terms per category -----
+CATEGORY_SEARCH_TERMS: Dict[str, list] = {
+    JobCategory.SOFTWARE_ENGINEERING.value: [
+        "software engineer",
+        "software developer",
+        "backend engineer"
+    ],
+    JobCategory.DATA_SCIENCE.value: [
+        "data scientist",
+        "data analyst",
+        "machine learning engineer"
+    ],
+    JobCategory.FINANCE.value: [
+        "financial analyst",
+        "accountant",
+        "finance manager"
+    ],
+    JobCategory.MARKETING.value: [
+        "marketing manager",
+        "digital marketing specialist",
+        "content marketer"
+    ],
+    JobCategory.DESIGN.value: [
+        "UX designer",
+        "graphic designer",
+        "product designer"
+    ],
+    JobCategory.HEALTHCARE.value: [
+        "registered nurse",
+        "medical assistant",
+        "healthcare administrator"
+    ],
+    JobCategory.SALES.value: [
+        "sales representative",
+        "account executive",
+        "sales manager"
+    ],
+    JobCategory.OPERATIONS.value: [
+        "operations manager",
+        "logistics coordinator",
+        "supply chain analyst"
+    ],
+    JobCategory.EDUCATION.value: [
+        "teacher",
+        "professor",
+        "academic advisor"
+    ],
+    JobCategory.LEGAL.value: [
+        "paralegal",
+        "legal assistant",
+        "lawyer"
+    ],
+    JobCategory.HUMAN_RESOURCES.value: [
+        "HR manager",
+        "recruiter",
+        "talent acquisition specialist"
+    ],
+    JobCategory.CUSTOMER_SERVICE.value: [
+        "customer service representative",
+        "call center agent",
+        "customer support specialist"
+    ],
+    JobCategory.OTHER.value: [
+        "jobs hiring near me",
+        "entry level jobs",
+        "remote jobs"
+    ],
+}
+
+
+@router.get("/categories")
+async def get_categories() -> Dict[str, Any]:
+    """Return the list of valid job categories with their predefined search terms."""
+    return {
+        "success": True,
+        "categories": [
+            {
+                "value": c.value,
+                "label": c.value.replace("_", " ").title(),
+                "search_terms": CATEGORY_SEARCH_TERMS.get(c.value, []),
+            }
+            for c in JobCategory
+        ],
+    }
+
 
 def _parse_date_posted(date_value: Any) -> Optional[datetime]:
     """
@@ -97,7 +184,8 @@ async def get_jobs_endpoint(
     limit: int = 10,
     offset: int = 0,
     order_by: str = "date_posted",
-    order_direction: str = "desc"
+    order_direction: str = "desc",
+    category: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Fetch n jobs starting at a certain index from the Firestore database.
@@ -107,11 +195,20 @@ async def get_jobs_endpoint(
         offset: Number of jobs to skip (starting index i) - default: 0
         order_by: Field to order by - default: "date_posted"
         order_direction: Order direction ("asc" or "desc") - default: "desc"
+        category: Optional JobCategory value to filter by (e.g. "software_engineering", "finance")
 
     Returns:
         Dictionary containing jobs list and pagination metadata
     """
     try:
+        # Validate category if provided
+        valid_categories = [c.value for c in JobCategory]
+        if category and category not in valid_categories:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid category '{category}'. Valid categories: {valid_categories}"
+            )
+
         # Validate parameters
         if limit <= 0:
             raise HTTPException(
@@ -139,7 +236,8 @@ async def get_jobs_endpoint(
             limit=limit,
             offset=offset,
             order_by=order_by,
-            order_direction=order_direction
+            order_direction=order_direction,
+            category=category
         )
 
         # Check if there was an error in the database operation
@@ -168,30 +266,43 @@ async def get_jobs_endpoint(
 @router.get("/scrape-jobs")
 async def scrape_jobs_endpoint(
     site_name: str = "indeed,linkedin,zip_recruiter,google",
-    google_search_term: str = "software engineer jobs near NYC posted in the last 3 days",
     location: str = "New York, NY",
     results_wanted: int = 50,
     hours_old: int = 72,
     country_indeed: str = "USA",
-    linkedin_fetch_description: bool = True
+    linkedin_fetch_description: bool = True,
+    category: str = "software_engineering"
 ) -> Dict[str, Any]:
     """
-    Scrape job listings from multiple job sites.
+    Scrape job listings from multiple job sites using predefined search terms
+    for the given category.
     Rate limited to once every 5 seconds.
 
     Args:
         site_name: Comma-separated list of sites to scrape from
-        google_search_term: Search term for Google jobs
         location: Job location to search in
         results_wanted: Number of results to return
         hours_old: Maximum age of job postings in hours
         country_indeed: Country code for Indeed searches
         linkedin_fetch_description: Whether to fetch full descriptions from LinkedIn
+        category: Required JobCategory value (e.g. "software_engineering").
 
     Returns:
         Dictionary containing scraped job data and metadata
     """
     global _last_scrape_time
+
+    # Validate category
+    valid_categories = [c.value for c in JobCategory]
+    if category not in valid_categories:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid category '{category}'. Valid categories: {valid_categories}"
+        )
+    resolved_category = category
+
+    # Get the predefined search terms for this category
+    search_terms = CATEGORY_SEARCH_TERMS.get(category, ["jobs"])
 
     # Check rate limit
     current_time = time.time()
@@ -209,86 +320,138 @@ async def scrape_jobs_endpoint(
         # Parse site_name parameter into a list
         sites = [site.strip() for site in site_name.split(",")]
 
-        # Scrape jobs
-        jobs = scrape_jobs(
-            site_name=sites,
-            google_search_term=google_search_term,
-            location=location,
-            results_wanted=results_wanted,
-            hours_old=hours_old,
-            country_indeed=country_indeed,
-            linkedin_fetch_description=linkedin_fetch_description
-        )
-
-        # Convert scraped jobs to JobApplication objects
+        db_manager = DatabaseManager()
         job_applications = []
         saved_count = 0
         updated_count = 0
         skipped_count = 0
-        db_manager = DatabaseManager()
+        total_scraped = 0
 
-        for _, job_row in jobs.iterrows():
+        # Build a list of (term, site_subset) combos to cycle through.
+        # This ensures we vary BOTH the search query and the platform,
+        # maximising the chance of finding genuinely new listings.
+        search_combos = []
+        for term in search_terms:
+            for site in sites:
+                search_combos.append((term, [site]))
+
+        # Maximum number of scrape attempts to avoid running forever.
+        MAX_ATTEMPTS = len(search_combos) * 2
+        attempts = 0
+
+        # Cycle through (term, site) combos until we've saved enough NEW jobs
+        combo_index = 0
+        while saved_count < results_wanted and attempts < MAX_ATTEMPTS:
+            current_term, current_sites = search_combos[combo_index % len(search_combos)]
+            attempts += 1
+            print(f"[Scraper] Attempt {attempts}: '{current_term}' on {current_sites} (need {results_wanted - saved_count} more new jobs)")
+
             try:
-                # Parse date_posted safely
-                parsed_date = _parse_date_posted(job_row.get('date_posted'))
-
-                # Generate application_id - use scraped ID or create a UUID if not available
-                scraped_id = job_row.get('id', '')
-                application_id = str(scraped_id) if scraped_id else str(uuid.uuid4())
-
-                # Create JobApplication object from scraped data
-                job_application = JobApplication(
-                    application_id=application_id,
-                    job_url=str(job_row.get('job_url', '')),
-                    company_name=str(job_row.get('company', 'Unknown')),
-                    position_title=str(job_row.get('title', '')),
-                    description=str(job_row.get('description', '')),
-                    work_type=str(job_row.get('is_remote', '')),
-                    location=str(job_row.get('location', None)) if job_row.get('location') else None,
-                    job_type=str(job_row.get('job_type', '')),
-                    date_posted=parsed_date,
-                    compensation=str(str(job_row.get('min_amount', '')) + '-' + str(job_row.get('max_amount', '')) if job_row.get('min_amount') or job_row.get('max_amount') else 'Not specified'),
-                    logo=str(job_row.get('company_logo', ''))
+                jobs = scrape_jobs(
+                    site_name=current_sites,
+                    search_term=current_term,
+                    google_search_term=current_term,
+                    location=location,
+                    results_wanted=results_wanted,
+                    hours_old=hours_old,
+                    country_indeed=country_indeed,
+                    linkedin_fetch_description=linkedin_fetch_description
                 )
-
-                # Check if job already exists by URL or ID
-                existing_job = None
-                if job_application.job_url:
-                    existing_job = await db_manager.get_job_by_url(job_application.job_url)
-
-                if not existing_job and job_application.application_id:
-                    existing_job = await db_manager.get_job_application(job_application.application_id)
-
-                if existing_job:
-                    # Job exists, check if it needs updating
-                    if _jobs_are_different(existing_job, job_application):
-                        # Update existing job
-                        if await db_manager.update_job_application(existing_job.application_id, job_application):
-                            updated_count += 1
-                            job_applications.append(job_application.model_dump())
-                            print(f"Updated job: {job_application.position_title} at {job_application.company_name}")
-                    else:
-                        # Job exists and hasn't changed significantly
-                        skipped_count += 1
-                        print(f"Skipped unchanged job: {job_application.position_title} at {job_application.company_name}")
-                else:
-                    # New job, save to Firebase
-                    if await db_manager.create_job_application(job_application):
-                        saved_count += 1
-                        job_applications.append(job_application.model_dump())
-                        print(f"Saved new job: {job_application.position_title} at {job_application.company_name}")
-
-            except Exception as e:
-                print(f"Error processing job: {e}")
+            except Exception as scrape_err:
+                print(f"[Scraper] Error scraping '{current_term}' on {current_sites}: {scrape_err}")
+                combo_index += 1
                 continue
+
+            total_scraped += len(jobs)
+            new_in_this_batch = 0
+
+            for _, job_row in jobs.iterrows():
+                try:
+                    parsed_date = _parse_date_posted(job_row.get('date_posted'))
+                    scraped_id = job_row.get('id', '')
+                    application_id = str(scraped_id) if scraped_id else str(uuid.uuid4())
+
+                    # Capture the direct application URL if available
+                    raw_direct = job_row.get('job_url_direct', None)
+                    direct_url = str(raw_direct) if raw_direct and str(raw_direct).lower() not in ('', 'none', 'nan') else None
+
+                    job_application = JobApplication(
+                        application_id=application_id,
+                        job_url=str(job_row.get('job_url', '')),
+                        job_url_direct=direct_url,
+                        company_name=str(job_row.get('company', 'Unknown')),
+                        position_title=str(job_row.get('title', '')),
+                        description=str(job_row.get('description', '')),
+                        work_type=str(job_row.get('is_remote', '')),
+                        location=str(job_row.get('location', None)) if job_row.get('location') else None,
+                        job_type=str(job_row.get('job_type', '')),
+                        date_posted=parsed_date,
+                        compensation=str(str(job_row.get('min_amount', '')) + '-' + str(job_row.get('max_amount', '')) if job_row.get('min_amount') or job_row.get('max_amount') else 'Not specified'),
+                        logo=str(job_row.get('company_logo', '')),
+                        category=resolved_category,
+                    )
+
+                    # ── Validate required fields ──
+                    _title = (job_application.position_title or '').strip()
+                    _company = (job_application.company_name or '').strip()
+                    _desc = (job_application.description or '').strip()
+
+                    if not _title or _title.lower() in ('', 'none', 'nan'):
+                        skipped_count += 1
+                        continue
+                    if not _company or _company.lower() in ('', 'none', 'nan', 'unknown'):
+                        skipped_count += 1
+                        continue
+                    if not _desc or _desc.lower() in ('', 'none', 'nan') or len(_desc) < 20:
+                        skipped_count += 1
+                        continue
+
+                    _comp = (job_application.compensation or '').strip()
+                    if _comp in ('', 'nan-nan', 'None-None', '-', 'nan', 'None'):
+                        job_application.compensation = 'Not specified'
+
+                    # Check if job already exists by URL or ID
+                    existing_job = None
+                    if job_application.job_url:
+                        existing_job = await db_manager.get_job_by_url(job_application.job_url)
+                    if not existing_job and job_application.application_id:
+                        existing_job = await db_manager.get_job_application(job_application.application_id)
+
+                    if existing_job:
+                        if _jobs_are_different(existing_job, job_application):
+                            if await db_manager.update_job_application(existing_job.application_id, job_application):
+                                updated_count += 1
+                                job_applications.append(job_application.model_dump())
+                                print(f"Updated job: {job_application.position_title} at {job_application.company_name}")
+                        else:
+                            skipped_count += 1
+                            print(f"Skipped unchanged job: {job_application.position_title} at {job_application.company_name}")
+                    else:
+                        if await db_manager.create_job_application(job_application):
+                            saved_count += 1
+                            new_in_this_batch += 1
+                            job_applications.append(job_application.model_dump())
+                            print(f"Saved new job: {job_application.position_title} at {job_application.company_name}")
+
+                except Exception as e:
+                    print(f"Error processing job: {e}")
+                    continue
+
+            print(f"[Scraper] Batch done: {new_in_this_batch} new jobs from '{current_term}' on {current_sites} (total new: {saved_count}/{results_wanted})")
+
+            # Move to next (term, site) combo for variety
+            combo_index += 1
+
+        if attempts >= MAX_ATTEMPTS and saved_count < results_wanted:
+            print(f"[Scraper] Reached max attempts ({MAX_ATTEMPTS}). Saved {saved_count} new jobs out of {results_wanted} requested.")
 
         return {
             "success": True,
-            "jobs_found": len(jobs),
+            "jobs_found": total_scraped,
             "jobs_saved_to_firebase": saved_count,
             "jobs_updated": updated_count,
             "jobs_skipped": skipped_count,
-            "message": f"Successfully scraped {len(jobs)} jobs. Saved {saved_count} new jobs, updated {updated_count} existing jobs, skipped {skipped_count} unchanged jobs.",
+            "message": f"Scraped {total_scraped} jobs across {attempts} searches. Saved {saved_count} new jobs, updated {updated_count}, skipped {skipped_count} duplicates.",
             "csv_saved": True
         }
 

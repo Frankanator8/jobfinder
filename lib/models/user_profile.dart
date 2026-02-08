@@ -10,6 +10,42 @@ class UserProfile {
   String preferredJobType;
   String salaryRange;
 
+  // Scraper / search preferences
+  List<String> searchSites;
+  String searchLocation;
+  int hoursOld;
+  String category;
+
+  static const List<String> availableSites = [
+    'indeed',
+    'linkedin',
+    'zip_recruiter',
+    'google',
+  ];
+
+  static const List<String> availableCategories = [
+    'software_engineering',
+    'data_science',
+    'finance',
+    'marketing',
+    'design',
+    'healthcare',
+    'sales',
+    'operations',
+    'education',
+    'legal',
+    'human_resources',
+    'customer_service',
+    'other',
+  ];
+
+  static String categoryLabel(String value) {
+    return value.replaceAll('_', ' ').split(' ').map((w) {
+      if (w.isEmpty) return w;
+      return w[0].toUpperCase() + w.substring(1);
+    }).join(' ');
+  }
+
   UserProfile({
     this.name = '',
     this.email = '',
@@ -21,6 +57,10 @@ class UserProfile {
     this.bio = '',
     this.preferredJobType = '',
     this.salaryRange = '',
+    this.searchSites = const ['indeed', 'linkedin', 'zip_recruiter', 'google'],
+    this.searchLocation = '',
+    this.hoursOld = 72,
+    this.category = '',
   });
 
   bool get isEmpty {
@@ -43,6 +83,10 @@ class UserProfile {
       'bio': bio,
       'preferredJobType': preferredJobType,
       'salaryRange': salaryRange,
+      'searchSites': searchSites,
+      'searchLocation': searchLocation,
+      'hoursOld': hoursOld,
+      'category': category,
     };
   }
 
@@ -59,6 +103,10 @@ class UserProfile {
       bio: map['bio'] as String? ?? '',
       preferredJobType: map['preferredJobType'] as String? ?? '',
       salaryRange: map['salaryRange'] as String? ?? '',
+      searchSites: List<String>.from(map['searchSites'] as List? ?? ['indeed', 'linkedin', 'zip_recruiter', 'google']),
+      searchLocation: map['searchLocation'] as String? ?? '',
+      hoursOld: map['hoursOld'] as int? ?? 72,
+      category: map['category'] as String? ?? '',
     );
   }
 }
