@@ -3,6 +3,7 @@ import '../models/job.dart';
 import '../models/user_profile.dart';
 import '../services/auth_service.dart';
 import '../services/job_service.dart';
+import '../services/queue_service.dart';
 import '../widgets/swipeable_card_stack.dart';
 import 'user_info_screen.dart';
 
@@ -81,7 +82,7 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
     }
   }
 
-  void _onSwipe(Job job, bool isLiked) {
+  void _onSwipe(Job job, bool isLiked) async {
     setState(() {
       // Remove the swiped job from the list
       _jobs.removeWhere((j) => j.id == job.id);
@@ -92,6 +93,22 @@ class _JobSwipeScreenState extends State<JobSwipeScreen> {
         _passedJobs.add(job);
       }
     });
+
+    // Add to queue if liked
+    if (isLiked) {
+      final currentUser = AuthService().currentUser;
+      if (currentUser != null) {
+        try {
+          await QueueService.addToQueue(
+            applicationId: job.id,
+            applicantId: currentUser.uid,
+          );
+          debugPrint('[Queue] Added job ${job.id} to queue for user ${currentUser.uid}');
+        } catch (e) {
+          debugPrint('[Queue] Failed to add to queue: $e');
+        }
+      }
+    }
 
     // Show feedback
     ScaffoldMessenger.of(context).showSnackBar(
